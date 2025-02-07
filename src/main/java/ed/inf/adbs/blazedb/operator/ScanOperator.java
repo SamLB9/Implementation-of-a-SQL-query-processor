@@ -7,7 +7,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 
 public class ScanOperator extends Operator {
@@ -62,14 +64,19 @@ public class ScanOperator extends Operator {
         try {
             String line = reader.readLine();
             if (line != null) {
-                return new Tuple(line);
+                // Split the line by comma and trim spaces if necessary.
+                String[] tokens = line.split(",");
+                // Initialize the list of fields (change implementation as needed).
+                List<String> fields = Arrays.asList(tokens);
+                // Create and return a new Tuple with the fields.
+                return new Tuple(fields);
             }
         } catch (IOException e) {
-            System.err.println("Error reading next tuple from file " + filePath);
-            e.printStackTrace();
+            System.err.println("Error reading tuple: " + e.getMessage());
         }
         return null;
     }
+
 
 
     /**
@@ -150,10 +157,16 @@ public class ScanOperator extends Operator {
     private int getColumnIndex(String columnName) {
         switch (columnName.toUpperCase()) {
             case "A":
+            case "H":
+            case "E":
                 return 0;
             case "B":
+            case "F":
+            case "I":
                 return 1;
             case "C":
+            case "G":
+            case "J":
                 return 2;
             case "D":
                 return 3;

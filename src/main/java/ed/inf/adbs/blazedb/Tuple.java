@@ -10,9 +10,10 @@ public class Tuple {
         this.fields = fields;
     }
 
-    public String getField(int index) {
-        return fields.get(index);
+    public List<String> getFields() {
+        return fields;
     }
+
 
     public Tuple(String rawData) {
         this.rawData = rawData;
@@ -20,8 +21,9 @@ public class Tuple {
 
     @Override
     public String toString() {
-        return rawData;
+        return String.join(", ", fields);
     }
+
 
     /**
      * Returns the integer value in this tuple at the given index.

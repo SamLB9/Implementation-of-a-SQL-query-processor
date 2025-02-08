@@ -1,14 +1,16 @@
 // File: ed/inf/adbs/blazedb/catalog/Catalog.java
-package ed.inf.adbs.blazedb.catalog;
+package ed.inf.adbs.blazedb;
 
 import java.util.HashMap;
 import java.util.Map;
+
 
 public class Catalog {
     // Singleton instance
     private static Catalog instance = null;
     // Mapping of table names to file paths
     private Map<String, String> tableFilePaths;
+
 
     // Private constructor prevents instantiation from other classes
     private Catalog() {
@@ -19,6 +21,7 @@ public class Catalog {
         tableFilePaths.put("Course", "/Users/samlaborde-balen/Desktop/BlazeDB/samples/db/data/Course.csv");
         tableFilePaths.put("Enrolled", "/Users/samlaborde-balen/Desktop/BlazeDB/samples/db/data/Enrolled.csv");
     }
+
 
     /**
      * Retrieves the single instance of Catalog.
@@ -31,6 +34,7 @@ public class Catalog {
         return instance;
     }
 
+
     /**
      * Returns the file path associated with the given table name.
      *
@@ -40,6 +44,7 @@ public class Catalog {
     public String getFilePathForTable(String tableName) {
         return tableFilePaths.get(tableName);
     }
+
 
     /**
      * Adds or updates a table entry in the catalog.

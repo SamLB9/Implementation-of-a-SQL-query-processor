@@ -2,6 +2,7 @@ package ed.inf.adbs.blazedb.operator;
 
 import ed.inf.adbs.blazedb.Tuple;
 
+
 /**
  * The abstract Operator class for the iterator model.
  *
@@ -9,11 +10,13 @@ import ed.inf.adbs.blazedb.Tuple;
  */
 public abstract class Operator {
 
+
     /**
      * Retrieves the next tuple from the iterator.
      * @return A Tuple object representing the row of data, or NULL if EOF reached.
      */
     public abstract Tuple getNextTuple();
+
 
     /**
      * Resets the iterator to the start.

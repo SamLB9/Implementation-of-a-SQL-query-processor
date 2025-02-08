@@ -29,6 +29,7 @@ public class ExpressionEvaluator implements ExpressionVisitor {
         this.schemaMapping = schemaMapping;
     }
 
+
     public boolean evaluate(Expression expr) {
         expr.accept(this);
         if (currentValue instanceof Boolean) {
@@ -37,6 +38,7 @@ public class ExpressionEvaluator implements ExpressionVisitor {
             throw new IllegalStateException("Expression did not evaluate to a boolean: " + expr);
         }
     }
+
 
     // Helper method for evaluating subexpressions.
     private Object evaluateSubExpression(Expression expr) {
@@ -50,10 +52,12 @@ public class ExpressionEvaluator implements ExpressionVisitor {
         currentValue = longValue.getValue();
     }
 
+
     @Override
     public void visit(HexValue hexValue) {
 
     }
+
 
     @Override
     public void visit(Column column) {

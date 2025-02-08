@@ -8,33 +8,25 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ProjectionOperator extends Operator {
-
     private Operator child;
     private String[] projectionColumns;
+    private Map<String, Integer> schemaMapping;
 
-    // In a real application, this mapping should be created based on the actual table schema.
-    // Here we assume a default mapping where, for example, column "A" is at index 0, "B" is at index 1,
-    // "C" is at index 2, "D" is at index 3, etc.
-    private static final Map<String, Integer> defaultMapping;
-    static {
-        defaultMapping = new HashMap<>();
-        defaultMapping.put("A", 0);
-        defaultMapping.put("B", 1);
-        defaultMapping.put("C", 2);
-        defaultMapping.put("D", 3);
-        // Add additional mappings as needed.
-    }
 
     /**
      * Constructs a ProjectionOperator.
      *
-     * @param child The underlying operator that produces full tuples.
-     * @param projectionColumns An array of column names to project. For example: {"D", "B", "A"}.
+     * @param child            The underlying operator that produces full tuples.
+     * @param projectionColumns An array of column names to project. For example: {"Student.D", "Student.B", "Student.A"}.
+     *                          Note: Ensure these names are compatible with the keys in the dynamic schema mapping.
+     * @param schemaMapping    A mapping from fully qualified column names (e.g., "Student.A") to their indexes.
      */
-    public ProjectionOperator(Operator child, String[] projectionColumns) {
+    public ProjectionOperator(Operator child, String[] projectionColumns, Map<String, Integer> schemaMapping) {
         this.child = child;
         this.projectionColumns = projectionColumns;
+        this.schemaMapping = schemaMapping;
     }
+
 
     /**
      * Retrieves the next projected tuple.
@@ -52,12 +44,13 @@ public class ProjectionOperator extends Operator {
         List<String> fullFields = fullTuple.getFields();
         List<String> projectedFields = new ArrayList<>();
 
-        // For each column specified in the projection, look up the index from the default mapping,
+        // For each column specified in the projection, look up the index from the dynamic schema mapping,
         // then add the corresponding field.
         for (String col : projectionColumns) {
-            Integer index = defaultMapping.get(col);
+            // Lookup the index for the fully qualified column name.
+            Integer index = schemaMapping.get(col);
             if (index == null || index >= fullFields.size()) {
-                // In a real use case you might want to throw an exception here.
+                // Optionally handle the case where the column is not found.
                 projectedFields.add("");
             } else {
                 projectedFields.add(fullFields.get(index));
@@ -66,6 +59,7 @@ public class ProjectionOperator extends Operator {
 
         return new Tuple(projectedFields);
     }
+
 
     /**
      * Resets the operator by resetting its child operator.

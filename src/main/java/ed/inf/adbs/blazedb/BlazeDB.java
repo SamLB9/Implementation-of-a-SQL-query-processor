@@ -1,6 +1,8 @@
 package ed.inf.adbs.blazedb;
 
+import java.io.BufferedReader;
 import java.io.FileReader;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +45,7 @@ public class BlazeDB {
 		executeQueryPlan(inputFile, outputFile);
 	}
 
+
 	/**
 	 * Parses a query from inputFile, extracts the table name from the FROM clause,
 	 * instantiates a ScanOperator for that table, and then executes the operator.
@@ -70,15 +73,15 @@ public class BlazeDB {
 			System.out.println("Scanning table: " + tableName);
 
 			// Create the base scan operator.
-			Operator op = new ScanOperator(tableName);
+			Operator op = new ScanOperator(tableName, false);
 
 			// If a WHERE clause exists, wrap the scan operator with a SelectOperator.
 			Expression where = plainSelect.getWhere();
+			Map<String, Integer> schemaMapping = createSchemaMapping(tableName);
 			if (where != null) {
-				// Build a sample schema mapping; in a real use case, this mapping would be based on the actual table schema.
-				Map<String, Integer> schemaMapping = createSchemaMapping(tableName);
 				op = new SelectOperator(op, where, schemaMapping);
 			}
+
 
 			// Check the SELECT items to see if we need to perform a projection.
 			List<SelectItem<?>> selectItems = plainSelect.getSelectItems();
@@ -92,16 +95,22 @@ public class BlazeDB {
 				List<String> columnsToProject = new ArrayList<>();
 				for (SelectItem item : selectItems) {
 					String itemStr = item.toString().trim();
-					// If the column is prefixed (e.g., "Student.D"), keep only the column part.
+					// If the column is prefixed with the table name, keep the fully qualified name.
 					if (itemStr.contains(".")) {
-						columnsToProject.add(itemStr.substring(itemStr.indexOf('.') + 1));
+						// Check if it already starts with the table name, otherwise prepend it.
+						if (itemStr.startsWith(tableName + ".")) {
+							columnsToProject.add(itemStr);
+						} else {
+							columnsToProject.add(tableName + "." + itemStr.substring(itemStr.indexOf('.') + 1));
+						}
 					} else {
-						columnsToProject.add(itemStr);
+						// If the column is not qualified, prepend the table name.
+						columnsToProject.add(tableName + "." + itemStr);
 					}
 				}
 				// Wrap the operator tree with a projection operator.
-				// (Assuming you have a ProjectionOperator that takes the child operator and an array of column names.)
-				op = new ProjectionOperator(op, columnsToProject.toArray(new String[0]));
+				// Make sure the projection columns match the keys in the schema mapping.
+				op = new ProjectionOperator(op, columnsToProject.toArray(new String[0]), schemaMapping);
 			}
 
 			// Execute the operator tree.
@@ -111,12 +120,6 @@ public class BlazeDB {
 			e.printStackTrace();
 		}
 	}
-
-
-
-
-
-
 
 
 	/**
@@ -142,23 +145,30 @@ public class BlazeDB {
 	}
 
 	private static Map<String, Integer> createSchemaMapping(String tableName) {
-		Map<String, Integer> schemaMapping = new HashMap<>();
-		// Example mapping. In your actual implementation, set this according to your table schema.
-		// For instance, if the table has columns: id, name, age then you might have:
-		schemaMapping.put(tableName + ".A", 0);
-		schemaMapping.put(tableName + ".B", 1);
-		schemaMapping.put(tableName + ".C", 2);
-		schemaMapping.put(tableName + ".D", 3);
-		schemaMapping.put(tableName + ".F", 1);
-		schemaMapping.put(tableName + ".G", 2);
-		schemaMapping.put(tableName + ".H", 2);
-		if (tableName.equals("Enrolled")) {
-			schemaMapping.put(tableName + ".E", 1);
+		Map<String, Integer> mapping = new HashMap<>();
+		// Specify the absolute path to your schema file
+		String schemaFilePath = "/Users/samlaborde-balen/Desktop/BlazeDB/samples/db/schema.txt";
+
+		try (BufferedReader reader = new BufferedReader(new FileReader(schemaFilePath))) {
+			String line;
+			while ((line = reader.readLine()) != null) {
+				// Check if the line starts with the table name followed by a space.
+				if (line.startsWith(tableName + " ")) {
+					// Tokenize the line; the first token is the table name and the rest are column names.
+					String[] tokens = line.trim().split("\\s+");
+					// Starting from index 1 since tokens[0] is already the table name.
+					for (int i = 1; i < tokens.length; i++) {
+						// Use i - 1 as the index if your tuple structure starts at 0
+						mapping.put(tableName + "." + tokens[i], i - 1);
+					}
+					break; // Stop after processing the relevant table
+				}
+			}
+		} catch (IOException e) {
+			System.err.println("Error reading the schema file: " + e.getMessage());
 		}
-		else {
-			schemaMapping.put(tableName + ".E", 0);
-		}
-		return schemaMapping;
+
+		System.out.println("Schema mapping: " + mapping);
+		return mapping;
 	}
 }
-

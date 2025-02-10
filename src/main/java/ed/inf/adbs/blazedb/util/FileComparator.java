@@ -31,22 +31,22 @@ public class FileComparator {
             int expectedTotal = expectedLines.values().stream().mapToInt(Integer::intValue).sum();
 
             if (queryTotal != expectedTotal) {
-                System.out.println("Files have different numbers of lines.");
+                System.out.println("❌" + " Files have different numbers of lines.");
                 return false;
             }
 
             if (!queryLines.equals(expectedLines)) {
-                System.out.println("The contents of the files differ.");
+                System.out.println("❌" + " The contents of the files differ.");
                 System.out.println("Query output frequencies: " + queryLines);
                 System.out.println("Expected output frequencies: " + expectedLines);
                 return false;
             }
 
-            System.out.println("The query output matches the expected output.");
+            System.out.println("✅ " + " The query output matches the expected output.");
             return true;
 
         } catch (IOException e) {
-            System.err.println("An error occurred while comparing files: " + e.getMessage());
+            System.err.println("❌ An error occurred while comparing files: " + e.getMessage());
             return false;
         }
     }

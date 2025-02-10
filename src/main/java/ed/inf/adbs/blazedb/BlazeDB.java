@@ -164,12 +164,6 @@ public class BlazeDB {
 					+ queryNumber + ".csv";
 			boolean comparisonResult = FileComparator.compareFiles(outputFile, expectedOutputPath);
 
-			if (comparisonResult) {
-				System.out.println("Test passed: Query output matches expected output.");
-			} else {
-				System.out.println("Test failed: Query output does not match expected output.");
-			}
-
 
 		} catch (Exception e) {
 			System.err.println("Error executing query plan: " + e.getMessage());

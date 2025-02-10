@@ -1,5 +1,3 @@
-ed/inf/adbs/blazedb/expression/ExpressionEvaluator.class
-ed/inf/adbs/blazedb/Tuple.class
 ed/inf/adbs/blazedb/operator/SelectOperator.class
 ed/inf/adbs/blazedb/BlazeDB.class
 ed/inf/adbs/blazedb/BlazeDB$1.class
@@ -7,6 +5,9 @@ ed/inf/adbs/blazedb/operator/Operator.class
 ed/inf/adbs/blazedb/operator/ProjectionOperator.class
 ed/inf/adbs/blazedb/util/FileComparator.class
 ed/inf/adbs/blazedb/Catalog.class
-ed/inf/adbs/blazedb/operator/ScanOperator.class
 ed/inf/adbs/blazedb/operator/JoinOperator.class
+ed/inf/adbs/blazedb/operator/DuplicateEliminationOperator.class
+ed/inf/adbs/blazedb/expression/ExpressionEvaluator.class
+ed/inf/adbs/blazedb/Tuple.class
+ed/inf/adbs/blazedb/operator/ScanOperator.class
 ed/inf/adbs/blazedb/BlazeDB$2.class

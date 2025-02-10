@@ -66,10 +66,13 @@ public class BlazeDB {
 				return;
 			}
 
-			Select select = (Select) statement;
-			PlainSelect plainSelect = (PlainSelect) select.getSelectBody();
+			boolean hasDistinct = false;
+            Select selectStatement = (Select) statement;
+            PlainSelect plainSelect = (PlainSelect) selectStatement.getSelectBody();
+            hasDistinct = (plainSelect.getDistinct() != null);
 
-			List<String> tableNames = new ArrayList<>();
+
+            List<String> tableNames = new ArrayList<>();
 			Table fromTable = (Table) plainSelect.getFromItem();
 			tableNames.add(fromTable.getName());
 
@@ -137,6 +140,12 @@ public class BlazeDB {
 				}
 				rootOperator = new ProjectionOperator(rootOperator,
 						columnsToProject.toArray(new String[0]), schemaMapping);
+			}
+
+			if (hasDistinct) {
+				rootOperator = new DuplicateEliminationOperator(rootOperator);
+			} else {
+				rootOperator = rootOperator;
 			}
 
 			// Execute the final operator tree.

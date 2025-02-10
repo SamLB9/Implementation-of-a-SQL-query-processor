@@ -1,0 +1,1 @@
+SELECT Enrolled.A FROM Enrolled;

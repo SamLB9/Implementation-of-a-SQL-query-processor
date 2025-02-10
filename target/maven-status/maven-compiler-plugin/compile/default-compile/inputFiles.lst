@@ -8,3 +8,4 @@
 /Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/Tuple.java
 /Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/operator/Operator.java
 /Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/operator/SelectOperator.java
+/Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/operator/DuplicateEliminationOperator.java

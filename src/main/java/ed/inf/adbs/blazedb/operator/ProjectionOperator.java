@@ -1,9 +1,7 @@
-// Java
 package ed.inf.adbs.blazedb.operator;
 
 import ed.inf.adbs.blazedb.Tuple;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 

@@ -2,7 +2,6 @@ package ed.inf.adbs.blazedb.operator;
 import ed.inf.adbs.blazedb.Catalog;
 import ed.inf.adbs.blazedb.Tuple;
 
-// import javax.xml.catalog.Catalog;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;

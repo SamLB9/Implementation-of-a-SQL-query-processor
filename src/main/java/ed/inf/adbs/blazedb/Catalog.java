@@ -1,4 +1,3 @@
-// File: ed/inf/adbs/blazedb/catalog/Catalog.java
 package ed.inf.adbs.blazedb;
 
 import java.util.HashMap;

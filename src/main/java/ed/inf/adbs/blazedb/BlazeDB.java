@@ -169,14 +169,14 @@ public class BlazeDB {
 						plainSelect.getGroupBy().getGroupByExpressions() != null) {
 					groupByExpressions.addAll(plainSelect.getGroupBy().getGroupByExpressions());
 				}
-				System.out.println("SumExpressions: " + sumExpressions);
-				System.out.println("GroupByExpressions: " + groupByExpressions);
-				System.out.println("Initial schemaMapping: " + schemaMapping);
-				System.out.println("Child Operator: " + rootOperator);
+				// System.out.println("SumExpressions: " + sumExpressions);
+				// System.out.println("GroupByExpressions: " + groupByExpressions);
+				// System.out.println("Initial schemaMapping: " + schemaMapping);
+				// System.out.println("Child Operator: " + rootOperator);
 				rootOperator = new SumOperator(rootOperator, groupByExpressions, sumExpressions, schemaMapping);
 				if (rootOperator instanceof SumOperator) {
 					schemaMapping = ((SumOperator) rootOperator).getSchemaMapping();
-					System.out.println("Schema mapping after aggregation: " + schemaMapping);
+					// System.out.println("Schema mapping after aggregation: " + schemaMapping);
 				}
 			}
 
@@ -189,18 +189,47 @@ public class BlazeDB {
 			}
 
 			if (projectSpecific) {
-				List<String> columnsToProject = new ArrayList<>();
 				if (hasAggregation) {
-					// For aggregated queries, use aliases: use "SUM" for SUM expressions and "Group" for group-by.
-					for (SelectItem item : selectItems) {
-						String itemStr = item.toString().trim();
-						if (itemStr.toUpperCase().startsWith("SUM("))
-							columnsToProject.add("SUM");
-						else
-							columnsToProject.add("Group");
+					// Check if GROUP BY is present: in that case the aggregated tuple contains both the group key(s) and the aggregate(s)
+					if (plainSelect.getGroupBy() != null &&
+							plainSelect.getGroupBy().getGroupByExpressions() != null &&
+							!plainSelect.getGroupBy().getGroupByExpressions().isEmpty()) {
+						// Build the projected column names from the SELECT items.
+						// Typically, if a SELECT item is an aggregate (like "SUM(1)"), we output the aggregate column ("SUM").
+						// For non-aggregated SELECT items (if any), we output "Group".
+						List<String> aggregatedColumns = new ArrayList<>();
+						for (SelectItem item : selectItems) {
+							String itemStr = item.toString().trim().toUpperCase();
+							if (itemStr.startsWith("SUM(")) {
+								aggregatedColumns.add("SUM");
+							} else {
+								aggregatedColumns.add("Group");
+							}
+						}
+						rootOperator = new ProjectionOperator(rootOperator,
+								aggregatedColumns.toArray(new String[0]), schemaMapping);
+						// Build a matching schema mapping.
+						Map<String, Integer> projectedSchemaMapping = new LinkedHashMap<>();
+						for (int i = 0; i < aggregatedColumns.size(); i++) {
+							projectedSchemaMapping.put(aggregatedColumns.get(i), i);
+						}
+						schemaMapping = projectedSchemaMapping;
+					} else {
+						// Global aggregation (no GROUP BY).
+						// In this case the aggregated tuple should contain only the aggregated values.
+						List<String> aggregatedColumns = new ArrayList<>(schemaMapping.keySet());
+						rootOperator = new ProjectionOperator(rootOperator,
+								aggregatedColumns.toArray(new String[0]), schemaMapping);
+						// Update schema mapping accordingly.
+						Map<String, Integer> projectedSchemaMapping = new LinkedHashMap<>();
+						for (int i = 0; i < aggregatedColumns.size(); i++) {
+							projectedSchemaMapping.put(aggregatedColumns.get(i), i);
+						}
+						schemaMapping = projectedSchemaMapping;
 					}
 				} else {
 					// Non-aggregated query: use fully qualified column names.
+					List<String> columnsToProject = new ArrayList<>();
 					for (SelectItem item : selectItems) {
 						String itemStr = item.toString().trim();
 						if (itemStr.contains("."))
@@ -208,18 +237,17 @@ public class BlazeDB {
 						else
 							columnsToProject.add(tableNames.get(0) + "." + itemStr);
 					}
+					rootOperator = new ProjectionOperator(rootOperator,
+							columnsToProject.toArray(new String[0]), schemaMapping);
+					// Update schema mapping.
+					Map<String, Integer> projectedSchemaMapping = new HashMap<>();
+					for (int i = 0; i < columnsToProject.size(); i++) {
+						projectedSchemaMapping.put(columnsToProject.get(i), i);
+					}
+					schemaMapping = projectedSchemaMapping;
 				}
-
-				rootOperator = new ProjectionOperator(rootOperator,
-						columnsToProject.toArray(new String[0]), schemaMapping);
-
-				// Update schemaMapping to reflect the projection.
-				Map<String, Integer> projectedSchemaMapping = new HashMap<>();
-				for (int i = 0; i < columnsToProject.size(); i++) {
-					projectedSchemaMapping.put(columnsToProject.get(i), i);
-				}
-				schemaMapping = projectedSchemaMapping;
 			}
+
 
 			// Wrap the operator tree with DuplicateEliminationOperator if DISTINCT or GROUP BY is used.
 			if (hasDistinct ||
@@ -508,7 +536,7 @@ public class BlazeDB {
 			System.err.println("Error reading the schema file: " + e.getMessage());
 		}
 
-		System.out.println("Schema mapping: " + mapping);
+		// System.out.println("Schema mapping: " + mapping);
 		return mapping;
 	}
 }

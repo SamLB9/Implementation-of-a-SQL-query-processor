@@ -42,44 +42,75 @@ public class SumOperator extends Operator {
      * Reads all input tuples from the child operator, organizes them into groups, and computes the aggregate sums.
      */
     private void computeAggregation() {
-        // Create a map to store the grouping key and its aggregated sum.
-        // The key is the result of evaluating the group-by column (Enrolled.E),
-        // and the value is the sum aggregate.
-        Map<String, Integer> groups = new HashMap<>();
+        // Check if there is no GROUP BY clause.
+        if (groupByExpressions == null || groupByExpressions.isEmpty()) {
+            // This block performs a global aggregation.
+            // Initialize a list to hold the aggregates.
+            // We assume one aggregate value per sum expression. Adjust accordingly.
+            List<Integer> aggregatedSums = new ArrayList<>();
+            // Initialize each sum accumulator to 0.
+            for (int i = 0; i < sumExpressions.size(); i++) {
+                aggregatedSums.add(0);
+            }
 
-        // Read all tuples from the child operator.
-        Tuple tuple;
-        while ((tuple = child.getNextTuple()) != null) {
-            // Evaluate the grouping key, e.g., Enrolled.E.
-            // Make sure that groupByExpressions.get(0) corresponds to Enrolled.E.
-            String groupKey = evaluateExpressionAsString(tuple, groupByExpressions.get(0));
+            // Read and aggregate all tuples produced by the child.
+            Tuple tuple;
+            while ((tuple = child.getNextTuple()) != null) {
+                // For each SUM expression, evaluate and add the value.
+                for (int i = 0; i < sumExpressions.size(); i++) {
+                    int value = evaluateExpressionAsInt(tuple, sumExpressions.get(i));
+                    aggregatedSums.set(i, aggregatedSums.get(i) + value);
+                }
+            }
 
-            // Evaluate the SUM expression on the tuple, e.g., (Enrolled.H * Enrolled.H).
-            int sumValue = evaluateExpressionAsInt(tuple, sumExpressions.get(0));
-
-            // Update the running sum for the current group.
-            int currentSum = groups.getOrDefault(groupKey, 0);
-            groups.put(groupKey, currentSum + sumValue);
-        }
-
-        // After processing all tuples, build the aggregated output
-        // Each output tuple should contain both the grouping value and the aggregate.
-        outputTuples = new ArrayList<>();
-        for (Map.Entry<String, Integer> entry : groups.entrySet()) {
-            // Create a tuple where the first field is the group key and the second is the sum.
+            // Build the output tuple.
             List<String> outputFields = new ArrayList<>();
-            outputFields.add(entry.getKey());              // Expected to be 101, 102, etc.
-            outputFields.add(String.valueOf(entry.getValue())); // The computed sum.
+            for (int sum : aggregatedSums) {
+                outputFields.add(String.valueOf(sum));
+            }
+            outputTuples = new ArrayList<>();
             outputTuples.add(new Tuple(outputFields));
+
+            // Update the schema mapping accordingly. For example, label the fields as SUM_0, SUM_1, etc.
+            Map<String, Integer> aggSchemaMapping = new LinkedHashMap<>();
+            for (int i = 0; i < sumExpressions.size(); i++) {
+                aggSchemaMapping.put("SUM_" + i, i);
+            }
+            this.schemaMapping = aggSchemaMapping;
+
+            // Optionally, you can print the new schema mapping for debugging.
+            // System.out.println("Schema mapping after global aggregation: " + schemaMapping);
+        } else {
+            // Existing implementation: process aggregation using a grouping key.
+            Map<String, Integer> groups = new HashMap<>();
+            Tuple tuple;
+            while ((tuple = child.getNextTuple()) != null) {
+                // Evaluate the grouping key (assumed to be in groupByExpressions.get(0)).
+                String groupKey = evaluateExpressionAsString(tuple, groupByExpressions.get(0));
+                // Evaluate the SUM expression; adjust if multiple SUM expressions are needed.
+                int sumValue = evaluateExpressionAsInt(tuple, sumExpressions.get(0));
+
+                int currentSum = groups.getOrDefault(groupKey, 0);
+                groups.put(groupKey, currentSum + sumValue);
+            }
+
+            // Build the output tuples for each group.
+            outputTuples = new ArrayList<>();
+            for (Map.Entry<String, Integer> entry : groups.entrySet()) {
+                List<String> outputFields = new ArrayList<>();
+                outputFields.add(entry.getKey());              // Group key value.
+                outputFields.add(String.valueOf(entry.getValue())); // The computed sum.
+                outputTuples.add(new Tuple(outputFields));
+            }
+
+            // Update the schema mapping for grouped aggregation.
+            Map<String, Integer> aggSchemaMapping = new LinkedHashMap<>();
+            aggSchemaMapping.put("Group", 0);
+            aggSchemaMapping.put("SUM", 1);
+            this.schemaMapping = aggSchemaMapping;
+
+            // System.out.println("Schema mapping after grouped aggregation: " + schemaMapping);
         }
-
-        Map<String, Integer> aggSchemaMapping = new LinkedHashMap<>();
-        aggSchemaMapping.put("Group", 0);   // representing the grouping column (e.g., Enrolled.E)
-        aggSchemaMapping.put("SUM", 1);     // representing the computed sum
-
-        // Update the operator's schema mapping to the new aggregated one.
-        this.schemaMapping = aggSchemaMapping;
-        System.out.println("Schema mapping after aggregation: " + schemaMapping);
     }
 
     public Map<String, Integer> getSchemaMapping() {
@@ -137,11 +168,21 @@ public class SumOperator extends Operator {
      */
     @Override
     public Tuple getNextTuple() {
-        if (currentIndex < outputTuples.size()) {
-            return outputTuples.get(currentIndex++);
+        // If outputTuples is null then aggregate the results:
+        if (outputTuples == null) {
+            computeAggregation();
+        }
+
+        // If the current index is past the list of aggregated tuples, return null.
+        if (currentIndex < outputTuples.size()){
+            Tuple t = outputTuples.get(currentIndex);
+            // System.out.println("Returning aggregated tuple: " + t.getFields());
+            currentIndex++;
+            return t;
         }
         return null;
     }
+
 
     /**
      * Resets the operator by letting the consumer read the aggregated results again.

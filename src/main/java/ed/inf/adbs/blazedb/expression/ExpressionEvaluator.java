@@ -465,7 +465,29 @@ public class ExpressionEvaluator implements ExpressionVisitor {
 
     @Override
     public void visit(Multiplication multiplication) {
-        throw new UnsupportedOperationException("Multiplication not supported yet.");
+        multiplication.getLeftExpression().accept(this);
+        int left = convertToInt(currentValue);
+        // System.out.println("Left: " + left);
+        multiplication.getRightExpression().accept(this);
+        int right = convertToInt(currentValue);
+        // System.out.println("Right: " + right);
+        currentValue = left * right;
+        // System.out.println("Multiplication result: " + currentValue);
+    }
+
+
+    private int convertToInt(Object value) {
+        if (value instanceof Number) {
+            return ((Number)value).intValue();
+        } else if (value instanceof String) {
+            try {
+                return Integer.parseInt((String)value);
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Error converting to int: " + value);
+            }
+        } else {
+            throw new RuntimeException("Unexpected type for arithmetic operation: " + value);
+        }
     }
 
     @Override
@@ -531,6 +553,10 @@ public class ExpressionEvaluator implements ExpressionVisitor {
     @Override
     public void visit(TimestampValue timestampValue) {
         throw new UnsupportedOperationException("TimestampValue not supported yet.");
+    }
+
+    public Object getCurrentValue() {
+        return currentValue;
     }
 
     // Implement any additional methods required by the ExpressionVisitor interface.

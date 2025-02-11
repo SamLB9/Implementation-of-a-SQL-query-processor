@@ -16,6 +16,7 @@ import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.Statement;
+import net.sf.jsqlparser.statement.select.OrderByElement;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.schema.Table;
@@ -58,6 +59,7 @@ public class BlazeDB {
 		try {
 			// Parse the SQL query from the input file.
 			Operator rootOperator = null;
+			Map<String, Integer> schemaMapping = null;
 			FileReader fileReader = new FileReader(inputFile);
 			Statement statement = CCJSqlParserUtil.parse(fileReader);
 
@@ -90,7 +92,7 @@ public class BlazeDB {
 				String tableName = fromTable.getName();
 				System.out.println("Scanning table: " + tableName);
 				rootOperator = new ScanOperator(tableName, false);
-				Map<String, Integer> schemaMapping = createSchemaMapping(tableName);
+				schemaMapping = createSchemaMapping(tableName);
 
 				// Push down selection if where clause exists.
 				Expression where = plainSelect.getWhere();
@@ -111,7 +113,6 @@ public class BlazeDB {
 				// In join queries the schema mapping is merged from all tables.
 				// You could extract the current mapping from the operator tree (here we assume buildJoinTree correctly merged it)
 				// For clarity, if there is no join, the mapping is taken from the one table.
-				Map<String, Integer> schemaMapping;
 				if (tableNames.size() == 1) {
 					schemaMapping = createSchemaMapping(tableNames.get(0));
 				} else {
@@ -146,6 +147,15 @@ public class BlazeDB {
 				rootOperator = new DuplicateEliminationOperator(rootOperator);
 			} else {
 				rootOperator = rootOperator;
+			}
+
+			List<OrderByElement> orderByElements = plainSelect.getOrderByElements();
+			if (orderByElements != null && !orderByElements.isEmpty()) {
+				// Assume that the rootOperator can provide a mapping from fully-qualified column names to indices.
+				// This mapping is used by the SortOperator's comparator.
+
+				// Wrap the current root operator with the SortOperator.
+				rootOperator = new SortOperator(rootOperator, orderByElements, schemaMapping);
 			}
 
 			// Execute the final operator tree.

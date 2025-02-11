@@ -1,4 +1,5 @@
 /Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/Catalog.java
+/Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/operator/SortOperator.java
 /Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/BlazeDB.java
 /Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/expression/ExpressionEvaluator.java
 /Users/samlaborde-balen/Desktop/BlazeDB/src/main/java/ed/inf/adbs/blazedb/operator/JoinOperator.java

@@ -274,7 +274,7 @@ public class BlazeDB {
 			} else {
 				System.err.println("Could not extract query number from output file path: " + outputFile);
 			}
-			String expectedOutputPath = "/Users/samlaborde-balen/Desktop/BlazeDB/samples/expected_output/query"
+			String expectedOutputPath = "samples/expected_output/query"
 					+ queryNumber + ".csv";
 			boolean comparisonResult = FileComparator.compareFiles(outputFile, expectedOutputPath);
 
@@ -515,7 +515,7 @@ public class BlazeDB {
 	private static Map<String, Integer> createSchemaMapping(String tableName) {
 		Map<String, Integer> mapping = new HashMap<>();
 		// Specify the absolute path to your schema file
-		String schemaFilePath = "/Users/samlaborde-balen/Desktop/BlazeDB/samples/db/schema.txt";
+		String schemaFilePath = "samples/db/schema.txt";
 
 		try (BufferedReader reader = new BufferedReader(new FileReader(schemaFilePath))) {
 			String line;

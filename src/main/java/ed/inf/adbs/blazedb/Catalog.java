@@ -16,9 +16,9 @@ public class Catalog {
         tableFilePaths = new HashMap<>();
         // Initialize with table information.
         // For example:
-        tableFilePaths.put("Student", "/Users/samlaborde-balen/Desktop/BlazeDB/samples/db/data/Student.csv");
-        tableFilePaths.put("Course", "/Users/samlaborde-balen/Desktop/BlazeDB/samples/db/data/Course.csv");
-        tableFilePaths.put("Enrolled", "/Users/samlaborde-balen/Desktop/BlazeDB/samples/db/data/Enrolled.csv");
+        tableFilePaths.put("Student", "samples/db/data/Student.csv");
+        tableFilePaths.put("Course", "samples/db/data/Course.csv");
+        tableFilePaths.put("Enrolled", "samples/db/data/Enrolled.csv");
     }
 
 

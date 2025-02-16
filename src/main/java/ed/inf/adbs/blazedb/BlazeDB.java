@@ -8,6 +8,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import ed.inf.adbs.blazedb.operator.*;
+import ed.inf.adbs.blazedb.result.AggregationResult;
+import ed.inf.adbs.blazedb.result.OperatorInitializationResult;
+import ed.inf.adbs.blazedb.result.ProjectionResult;
 import ed.inf.adbs.blazedb.util.*;
 import net.sf.jsqlparser.expression.*;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
@@ -27,11 +30,19 @@ import java.util.List;
 
 
 /**
- * Lightweight in-memory database system.
- * <p>
- * Feel free to modify/move the provided functions. However, you must keep
- * the existing command-line interface, which consists of three arguments.
+ * BlazeDB is a lightweight, in-memory database system designed to execute SQL queries efficiently.
  *
+ * Key Features and Functionalities:
+ *   SQL Query Parsing: Parses SQL SELECT queries from input files using a SQL parser.
+ *   Operator Tree Initialization: Constructs an operator tree that represents the execution plan of the parsed query.
+ *   Aggregation Handling: Processes aggregation functions such as SUM and manages grouping operations.
+ *   Projection Processing: Selects the required columns based on the SELECT clause of the query.
+ *   Duplicate Elimination: Removes duplicate records when DISTINCT or GROUP BY clauses are present.
+ *   Sorting: Implements ORDER BY functionality to sort the query results as specified.
+ *   Result Execution and Comparison: Executes the operator tree to generate query results and compares them against expected outputs for verification.
+ *
+ * Usage Example:
+ *   java -jar BlazeDB.jar queries/query1.sql results/output1.csv
  */
 public class BlazeDB {
 
@@ -52,106 +63,43 @@ public class BlazeDB {
 
 
 	/**
-	 * Parses a query from inputFile, extracts the table name from the FROM clause,
-	 * instantiates a ScanOperator for that table, and then executes the operator.
-	 * <p>
-	 * For demonstration purposes, this method prints the results to the console.
+	 * Executes the SQL query plan defined in the specified input file and writes the results to the output file.
+	 * This method performs the following steps:
+	 *   Parses the SQL SELECT query from the input file.
+	 *   Initializes the operator tree and schema mapping based on the parsed query.
+	 *   Processes any aggregations, handling SUM expressions and grouping as necessary.
+	 *   Applies projections to select the required columns.
+	 *   Handles duplicate elimination if the query includes DISTINCT or GROUP BY clauses.
+	 *   Applies sorting based on ORDER BY clauses.
+	 *   Executes the operator tree to generate the query results.
+	 *   Compares the generated output with expected results to verify correctness.
+	 *
+	 * @param inputFile  The path to the input file containing the SQL SELECT query.
+	 * @param outputFile The path to the output file where the query results will be written.
 	 */
 
 	public static void executeQueryPlan(String inputFile, String outputFile) {
-		try {
-			// Parse the SQL query from the input file.
-			Operator rootOperator = null;
-			Map<String, Integer> schemaMapping = null;
-			FileReader fileReader = new FileReader(inputFile);
-			Statement statement = CCJSqlParserUtil.parse(fileReader);
+		try (FileReader fileReader = new FileReader(inputFile)) {
+			// Initialize operator tree and schema mapping
+			List<String> tableNames = new ArrayList<>();
+			OperatorInitializationResult initResult = initializeAndParse(fileReader, tableNames);
+			Operator rootOperator = initResult.getRootOperator();
+			Map<String, Integer> schemaMapping = initResult.getSchemaMapping();
 
-			if (!(statement instanceof Select)) {
-				System.err.println("Only SELECT queries are supported.");
-				return;
-			}
-
-			boolean hasDistinct = false;
+			// Parse the SQL query again to get PlainSelect (could be optimized to pass it from initializeAndParse)
+			Statement statement = CCJSqlParserUtil.parse(new FileReader(inputFile));
 			Select selectStatement = (Select) statement;
 			PlainSelect plainSelect = (PlainSelect) selectStatement.getSelectBody();
-			hasDistinct = (plainSelect.getDistinct() != null);
 
-			List<String> tableNames = new ArrayList<>();
-			Table fromTable = (Table) plainSelect.getFromItem();
-			tableNames.add(fromTable.getName());
-
-			List<Join> joins = plainSelect.getJoins();
-			if (joins != null && !joins.isEmpty()) {
-				for (Join join : joins) {
-					Table joinTable = (Table) join.getRightItem();
-					tableNames.add(joinTable.getName());
-				}
-				// Build a join tree based on all table names and the WHERE clause.
-				rootOperator = buildJoinTree(tableNames, plainSelect.getWhere());
-				// Compute the merged schema mapping for the join operators.
-				if (schemaMapping == null) {
-					if (tableNames.size() == 1) {
-						schemaMapping = createSchemaMapping(tableNames.get(0));
-					} else {
-						Map<String, Integer> mapping = createSchemaMapping(tableNames.get(0));
-						for (int i = 1; i < tableNames.size(); i++) {
-							Map<String, Integer> nextMapping = createSchemaMapping(tableNames.get(i));
-							mapping = mergeSchemaMappings(mapping, nextMapping);
-						}
-						schemaMapping = mapping;
-					}
-				}
-			} else {
-				// No join: use a simple scan.
-				String tableName = fromTable.getName();
-				System.out.println("Scanning table: " + tableName);
-				rootOperator = new ScanOperator(tableName, false);
-				schemaMapping = createSchemaMapping(tableName);
-
-				// Push down selection if where clause exists.
-				if (plainSelect.getWhere() != null) {
-					rootOperator = new SelectOperator(rootOperator, plainSelect.getWhere(), schemaMapping);
-				}
-			}
-
-			// Process aggregation: Identify SUM expressions (if any).
-			List<Expression> sumExpressions = new ArrayList<>();
-			boolean hasAggregation = false;
-			// For handling literal sum values, maintain a mapping from the literal to a generated alias.
-			// Later, we insert an operator that appends these constant literal values.
-			Map<Expression, String> literalSumMapping = new HashMap<>();
-			int literalCounter = 0;
-
-			List<SelectItem<?>> selectItems = plainSelect.getSelectItems();
-			for (SelectItem item : selectItems) {
-				String itemStr = item.toString();
-				if (itemStr.trim().toUpperCase().startsWith("SUM(")) {
-					hasAggregation = true;
-					int start = itemStr.indexOf("(");
-					int end = itemStr.lastIndexOf(")");
-					if (start != -1 && end != -1 && end > start) {
-						String innerExpStr = itemStr.substring(start + 1, end);
-						try {
-							Expression innerExp = CCJSqlParserUtil.parseExpression(innerExpStr);
-							// If the sum's inner expression is a literal, then generate a unique alias
-							if (innerExp instanceof LongValue || innerExp instanceof DoubleValue) {
-								String alias = "LITERAL_SUM_" + literalCounter;
-								// Save the mapping so that later we can add a constant column to the tuple.
-								literalSumMapping.put(innerExp, alias);
-								// Replace the literal expression with a column reference to the alias.
-								innerExp = new Column(alias);
-							}
-							sumExpressions.add(innerExp);
-						} catch (Exception e) {
-							System.err.println("Error parsing SUM inner expression: " + innerExpStr);
-						}
-					}
-				}
-			}
+			// --- Aggregation Processing ---
+			AggregationResult aggregationResult = processAggregations(plainSelect);
+			List<Expression> sumExpressions = aggregationResult.getSumExpressions();
+			boolean hasAggregation = aggregationResult.hasAggregation();
+			Map<Expression, String> literalSumMapping = aggregationResult.getLiteralSumMapping();
+			// ---
 
 			// If there is aggregation, and some SUM expressions referenced a literal value,
 			// wrap the current operator with a LiteralAppendOperator.
-			// This operator is assumed to add for each tuple the constant literal columns as specified.
 			if (hasAggregation && !literalSumMapping.isEmpty()) {
 				rootOperator = new LiteralAppendOperator(rootOperator, literalSumMapping, schemaMapping);
 				// Update schema mapping with new literal columns.
@@ -161,7 +109,6 @@ public class BlazeDB {
 				}
 			}
 
-
 			// Wrap the base operator with a SumOperator if there is any SUM aggregation.
 			if (hasAggregation) {
 				List<Expression> groupByExpressions = new ArrayList<>();
@@ -169,114 +116,35 @@ public class BlazeDB {
 						plainSelect.getGroupBy().getGroupByExpressions() != null) {
 					groupByExpressions.addAll(plainSelect.getGroupBy().getGroupByExpressions());
 				}
-				// System.out.println("SumExpressions: " + sumExpressions);
-				// System.out.println("GroupByExpressions: " + groupByExpressions);
-				// System.out.println("Initial schemaMapping: " + schemaMapping);
-				// System.out.println("Child Operator: " + rootOperator);
 				rootOperator = new SumOperator(rootOperator, groupByExpressions, sumExpressions, schemaMapping);
 				if (rootOperator instanceof SumOperator) {
 					schemaMapping = ((SumOperator) rootOperator).getSchemaMapping();
-					// System.out.println("Schema mapping after aggregation: " + schemaMapping);
 				}
 			}
 
-			// Process projection.
-			// Determine if the projection is specific or a wildcard.
-			selectItems = plainSelect.getSelectItems();
-			boolean projectSpecific = true;
-			if (selectItems.size() == 1 && selectItems.get(0).toString().trim().equals("*")) {
-				projectSpecific = false;
-			}
+			// --- Projection Processing ---
+			ProjectionResult projectionResult = processProjections(
+					plainSelect,
+					rootOperator,
+					schemaMapping,
+					hasAggregation,
+					tableNames
+			);
+			rootOperator = projectionResult.getRootOperator();
+			schemaMapping = projectionResult.getSchemaMapping();
+			// ---
 
-			if (projectSpecific) {
-				if (hasAggregation) {
-					// Check if GROUP BY is present: in that case the aggregated tuple contains both the group key(s) and the aggregate(s)
-					if (plainSelect.getGroupBy() != null &&
-							plainSelect.getGroupBy().getGroupByExpressions() != null &&
-							!plainSelect.getGroupBy().getGroupByExpressions().isEmpty()) {
-						// Build the projected column names from the SELECT items.
-						// Typically, if a SELECT item is an aggregate (like "SUM(1)"), we output the aggregate column ("SUM").
-						// For non-aggregated SELECT items (if any), we output "Group".
-						List<String> aggregatedColumns = new ArrayList<>();
-						for (SelectItem item : selectItems) {
-							String itemStr = item.toString().trim().toUpperCase();
-							if (itemStr.startsWith("SUM(")) {
-								aggregatedColumns.add("SUM");
-							} else {
-								aggregatedColumns.add("Group");
-							}
-						}
-						rootOperator = new ProjectionOperator(rootOperator,
-								aggregatedColumns.toArray(new String[0]), schemaMapping);
-						// Build a matching schema mapping.
-						Map<String, Integer> projectedSchemaMapping = new LinkedHashMap<>();
-						for (int i = 0; i < aggregatedColumns.size(); i++) {
-							projectedSchemaMapping.put(aggregatedColumns.get(i), i);
-						}
-						schemaMapping = projectedSchemaMapping;
-					} else {
-						// Global aggregation (no GROUP BY).
-						// In this case the aggregated tuple should contain only the aggregated values.
-						List<String> aggregatedColumns = new ArrayList<>(schemaMapping.keySet());
-						rootOperator = new ProjectionOperator(rootOperator,
-								aggregatedColumns.toArray(new String[0]), schemaMapping);
-						// Update schema mapping accordingly.
-						Map<String, Integer> projectedSchemaMapping = new LinkedHashMap<>();
-						for (int i = 0; i < aggregatedColumns.size(); i++) {
-							projectedSchemaMapping.put(aggregatedColumns.get(i), i);
-						}
-						schemaMapping = projectedSchemaMapping;
-					}
-				} else {
-					// Non-aggregated query: use fully qualified column names.
-					List<String> columnsToProject = new ArrayList<>();
-					for (SelectItem item : selectItems) {
-						String itemStr = item.toString().trim();
-						if (itemStr.contains("."))
-							columnsToProject.add(itemStr);
-						else
-							columnsToProject.add(tableNames.get(0) + "." + itemStr);
-					}
-					rootOperator = new ProjectionOperator(rootOperator,
-							columnsToProject.toArray(new String[0]), schemaMapping);
-					// Update schema mapping.
-					Map<String, Integer> projectedSchemaMapping = new HashMap<>();
-					for (int i = 0; i < columnsToProject.size(); i++) {
-						projectedSchemaMapping.put(columnsToProject.get(i), i);
-					}
-					schemaMapping = projectedSchemaMapping;
-				}
-			}
+			// --- Duplicate Elimination Handling ---
+			rootOperator = handleDuplicateElimination(plainSelect, rootOperator);
+			// ---
 
+			// --- Order By Handling ---
+			rootOperator = handleOrderBy(plainSelect, rootOperator, schemaMapping);
+			// ---
 
-			// Wrap the operator tree with DuplicateEliminationOperator if DISTINCT or GROUP BY is used.
-			if (hasDistinct ||
-					(plainSelect.getGroupBy() != null &&
-							plainSelect.getGroupBy().getGroupByExpressions() != null &&
-							!plainSelect.getGroupBy().getGroupByExpressions().isEmpty())) {
-				rootOperator = new DuplicateEliminationOperator(rootOperator);
-			}
-
-			// Process ORDER BY elements.
-			List<OrderByElement> orderByElements = plainSelect.getOrderByElements();
-			if (orderByElements != null && !orderByElements.isEmpty()) {
-				rootOperator = new SortOperator(rootOperator, orderByElements, schemaMapping);
-			}
-
-			// Execute the final operator tree.
-			execute(rootOperator, outputFile);
-
-			Pattern pattern = Pattern.compile("query(\\d+)\\.csv");
-			Matcher matcher = pattern.matcher(outputFile);
-			String queryNumber = "";
-			if (matcher.find()) {
-				queryNumber = matcher.group(1);
-			} else {
-				System.err.println("Could not extract query number from output file path: " + outputFile);
-			}
-			String expectedOutputPath = "samples/expected_output/query"
-					+ queryNumber + ".csv";
-			boolean comparisonResult = FileComparator.compareFiles(outputFile, expectedOutputPath);
+			// --- Execute and Compare Output ---
+			executeAndCompareOutput(rootOperator, outputFile);
+			// ---
 
 		} catch (Exception e) {
 			System.err.println("Error executing query plan: " + e.getMessage());
@@ -284,6 +152,292 @@ public class BlazeDB {
 		}
 	}
 
+	/**
+	 * Handles the wrapping of the operator tree with DuplicateEliminationOperator if needed.
+	 *
+	 * @param plainSelect   The parsed SQL select statement.
+	 * @param rootOperator  The current root operator in the operator tree.
+	 * @return The updated root operator after applying duplicate elimination if required.
+	 */
+	private static Operator handleDuplicateElimination(PlainSelect plainSelect, Operator rootOperator) {
+		boolean hasDistinct = (plainSelect.getDistinct() != null);
+		boolean hasGroupBy = plainSelect.getGroupBy() != null &&
+				plainSelect.getGroupBy().getGroupByExpressions() != null &&
+				!plainSelect.getGroupBy().getGroupByExpressions().isEmpty();
+
+		if (hasDistinct || hasGroupBy) {
+			rootOperator = new DuplicateEliminationOperator(rootOperator);
+		}
+
+		return rootOperator;
+	}
+
+	/**
+	 * Handles the wrapping of the operator tree with SortOperator if ORDER BY clauses are present.
+	 *
+	 * @param plainSelect   The parsed SQL select statement.
+	 * @param rootOperator  The current root operator in the operator tree.
+	 * @param schemaMapping The current schema mapping of column names to their indices.
+	 * @return The updated root operator after applying sorting if required.
+	 */
+	private static Operator handleOrderBy(PlainSelect plainSelect, Operator rootOperator, Map<String, Integer> schemaMapping) {
+		List<OrderByElement> orderByElements = plainSelect.getOrderByElements();
+		if (orderByElements != null && !orderByElements.isEmpty()) {
+			rootOperator = new SortOperator(rootOperator, orderByElements, schemaMapping);
+		}
+		return rootOperator;
+	}
+
+	/**
+	 * Executes the final operator tree and compares the output with the expected results.
+	 *
+	 * @param rootOperator The final root operator of the operator tree.
+	 * @param outputFile   The path to the output file where results are written.
+	 */
+	private static void executeAndCompareOutput(Operator rootOperator, String outputFile) {
+		// Execute the final operator tree
+		execute(rootOperator, outputFile);
+
+		// Extract query number from output file path
+		Pattern pattern = Pattern.compile("query(\\d+)\\.csv");
+		Matcher matcher = pattern.matcher(outputFile);
+		String queryNumber = "";
+		if (matcher.find()) {
+			queryNumber = matcher.group(1);
+		} else {
+			System.err.println("Could not extract query number from output file path: " + outputFile);
+		}
+
+		// Define expected output path
+		String expectedOutputPath = "samples/expected_output/query"
+				+ queryNumber + ".csv";
+
+		// Compare the actual output with the expected output
+		boolean comparisonResult = FileComparator.compareFiles(outputFile, expectedOutputPath);
+
+		if (comparisonResult) {
+			System.out.println("Output matches the expected results.");
+		} else {
+			System.err.println("Output does not match the expected results.");
+		}
+	}
+
+	/**
+	 * Initializes the operator tree and schema mapping by parsing the SQL query and setting up joins.
+	 *
+	 * @param fileReader   The FileReader for the input SQL file.
+	 * @param tableNames   The list to populate with table names involved in the query.
+	 * @return An OperatorInitializationResult containing the root operator and schema mapping.
+	 * @throws Exception If an error occurs during parsing or operator initialization.
+	 */
+	private static OperatorInitializationResult initializeAndParse(FileReader fileReader, List<String> tableNames) throws Exception {
+		Statement statement = CCJSqlParserUtil.parse(fileReader);
+
+		if (!(statement instanceof Select)) {
+			throw new IllegalArgumentException("Only SELECT queries are supported.");
+		}
+
+		Select selectStatement = (Select) statement;
+		PlainSelect plainSelect = (PlainSelect) selectStatement.getSelectBody();
+		List<Join> joins = plainSelect.getJoins();
+
+		Table fromTable = (Table) plainSelect.getFromItem();
+		tableNames.add(fromTable.getName());
+
+		OperatorInitializationResult initResult = initializeOperators(joins, plainSelect, tableNames, fromTable);
+
+		if (initResult.getSchemaMapping() == null) {
+			throw new IllegalStateException("Schema mapping could not be initialized.");
+		}
+
+		return initResult;
+	}
+
+	/**
+	 * Processes the projection part of the query, handling both aggregated and non-aggregated projections.
+	 *
+	 * @param plainSelect    The parsed SQL select statement.
+	 * @param rootOperator   The current root operator in the operator tree.
+	 * @param schemaMapping  The current schema mapping of column names to their indices.
+	 * @param hasAggregation A flag indicating whether the query includes aggregation.
+	 * @param tableNames     The list of table names involved in the query.
+	 * @return A ProjectionResult containing the updated root operator and schema mapping.
+	 */
+	private static ProjectionResult processProjections(
+			PlainSelect plainSelect,
+			Operator rootOperator,
+			Map<String, Integer> schemaMapping,
+			boolean hasAggregation,
+			List<String> tableNames) {
+
+		List<SelectItem<?>> selectItems = plainSelect.getSelectItems();
+		boolean projectSpecific = true;
+
+		if (selectItems.size() == 1 && selectItems.get(0).toString().trim().equals("*")) {
+			projectSpecific = false;
+		}
+
+		if (projectSpecific) {
+			if (hasAggregation) {
+				if (plainSelect.getGroupBy() != null &&
+						plainSelect.getGroupBy().getGroupByExpressions() != null &&
+						!plainSelect.getGroupBy().getGroupByExpressions().isEmpty()) {
+					// Build the projected column names from the SELECT items.
+					List<String> aggregatedColumns = new ArrayList<>();
+					for (SelectItem item : selectItems) {
+						String itemStr = item.toString().trim().toUpperCase();
+						if (itemStr.startsWith("SUM(")) {
+							aggregatedColumns.add("SUM");
+						} else {
+							aggregatedColumns.add("Group");
+						}
+					}
+					rootOperator = new ProjectionOperator(
+							rootOperator,
+							aggregatedColumns.toArray(new String[0]),
+							schemaMapping
+					);
+
+					// Build a matching schema mapping.
+					Map<String, Integer> projectedSchemaMapping = new LinkedHashMap<>();
+					for (int i = 0; i < aggregatedColumns.size(); i++) {
+						projectedSchemaMapping.put(aggregatedColumns.get(i), i);
+					}
+					schemaMapping = projectedSchemaMapping;
+				} else {
+					// Global aggregation (no GROUP BY).
+					List<String> aggregatedColumns = new ArrayList<>(schemaMapping.keySet());
+					rootOperator = new ProjectionOperator(
+							rootOperator,
+							aggregatedColumns.toArray(new String[0]),
+							schemaMapping
+					);
+
+					// Update schema mapping accordingly.
+					Map<String, Integer> projectedSchemaMapping = new LinkedHashMap<>();
+					for (int i = 0; i < aggregatedColumns.size(); i++) {
+						projectedSchemaMapping.put(aggregatedColumns.get(i), i);
+					}
+					schemaMapping = projectedSchemaMapping;
+				}
+			} else {
+				// Non-aggregated query: use fully qualified column names.
+				List<String> columnsToProject = new ArrayList<>();
+				for (SelectItem item : selectItems) {
+					String itemStr = item.toString().trim();
+					if (itemStr.contains("."))
+						columnsToProject.add(itemStr);
+					else
+						columnsToProject.add(tableNames.get(0) + "." + itemStr);
+				}
+				rootOperator = new ProjectionOperator(
+						rootOperator,
+						columnsToProject.toArray(new String[0]),
+						schemaMapping
+				);
+
+				// Update schema mapping.
+				Map<String, Integer> projectedSchemaMapping = new HashMap<>();
+				for (int i = 0; i < columnsToProject.size(); i++) {
+					projectedSchemaMapping.put(columnsToProject.get(i), i);
+				}
+				schemaMapping = projectedSchemaMapping;
+			}
+		}
+
+		return new ProjectionResult(rootOperator, schemaMapping);
+	}
+
+	/**
+	 * Processes aggregation by identifying SUM expressions and handling literal sum mappings.
+	 *
+	 * @param plainSelect          The parsed SQL select statement.
+	 * @return AggregationResult containing sum expressions, aggregation flag, and literal sum mappings.
+	 */
+	private static AggregationResult processAggregations(PlainSelect plainSelect) {
+		List<Expression> sumExpressions = new ArrayList<>();
+		boolean hasAggregation = false;
+		Map<Expression, String> literalSumMapping = new HashMap<>();
+		int literalCounter = 0;
+
+		List<SelectItem<?>> selectItems = plainSelect.getSelectItems();
+		for (SelectItem item : selectItems) {
+			String itemStr = item.toString();
+			if (itemStr.trim().toUpperCase().startsWith("SUM(")) {
+				hasAggregation = true;
+				int start = itemStr.indexOf("(");
+				int end = itemStr.lastIndexOf(")");
+				if (start != -1 && end != -1 && end > start) {
+					String innerExpStr = itemStr.substring(start + 1, end);
+					try {
+						Expression innerExp = CCJSqlParserUtil.parseExpression(innerExpStr);
+						// If the sum's inner expression is a literal, then generate a unique alias
+						if (innerExp instanceof LongValue || innerExp instanceof DoubleValue) {
+							String alias = "LITERAL_SUM_" + literalCounter++;
+							// Save the mapping so that later we can add a constant column to the tuple.
+							literalSumMapping.put(innerExp, alias);
+							// Replace the literal expression with a column reference to the alias.
+							innerExp = new Column(alias);
+						}
+						sumExpressions.add(innerExp);
+					} catch (Exception e) {
+						System.err.println("Error parsing SUM inner expression: " + innerExpStr);
+					}
+				}
+			}
+		}
+
+		return new AggregationResult(sumExpressions, hasAggregation, literalSumMapping);
+	}
+
+    /**
+     * Initializes the root operator and schema mapping based on the provided joins and plainSelect.
+     *
+     * @param joins        The list of join conditions.
+     * @param plainSelect  The plain select statement containing the WHERE clause.
+     * @param tableNames   The list to populate with table names involved in joins.
+     * @return The initialized root operator.
+     * @throws Exception If an error occurs during initialization.
+     */
+	private static OperatorInitializationResult initializeOperators(List<Join> joins, PlainSelect plainSelect, List<String> tableNames, Table fromTable) throws Exception {
+		Operator rootOperator;
+		Map<String, Integer> schemaMapping = null;
+
+		if (joins != null && !joins.isEmpty()) {
+			for (Join join : joins) {
+				Table joinTable = (Table) join.getRightItem();
+				tableNames.add(joinTable.getName());
+			}
+			// Build a join tree based on all table names and the WHERE clause.
+			rootOperator = buildJoinTree(tableNames, plainSelect.getWhere());
+			// Compute the merged schema mapping for the join operators.
+			if (schemaMapping == null) {
+				if (tableNames.size() == 1) {
+					schemaMapping = createSchemaMapping(tableNames.get(0));
+				} else {
+					Map<String, Integer> mapping = createSchemaMapping(tableNames.get(0));
+					for (int i = 1; i < tableNames.size(); i++) {
+						Map<String, Integer> nextMapping = createSchemaMapping(tableNames.get(i));
+						mapping = mergeSchemaMappings(mapping, nextMapping);
+					}
+					schemaMapping = mapping;
+				}
+			}
+		} else {
+			// No join: use a simple scan.
+			String tableName = fromTable.getName();
+			System.out.println("Scanning table: " + tableName);
+			rootOperator = new ScanOperator(tableName, false);
+			schemaMapping = createSchemaMapping(tableName);
+
+			// Push down selection if where clause exists.
+			if (plainSelect.getWhere() != null) {
+				rootOperator = new SelectOperator(rootOperator, plainSelect.getWhere(), schemaMapping);
+			}
+		}
+
+		return new OperatorInitializationResult(rootOperator, schemaMapping);
+	}
 
 	/**
 	 * Build a join tree given a list of table names and a WHERE clause.
@@ -388,6 +542,19 @@ public class BlazeDB {
 		return null;
 	}
 
+	/**
+	 * Extracts the join condition from the specified WHERE clause by identifying binary expressions
+	 * that involve tables from both the current and right schema mappings.
+	 *
+	 * <p>This method recursively traverses the WHERE clause expression. For conjunctions (AND expressions),
+	 * it attempts to extract join conditions from both sides of the expression. If a binary expression references
+	 * at least one table from each schema mapping, it is considered a join condition and returned.
+	 *
+	 * @param whereClause           The WHERE clause expression to process.
+	 * @param currentSchemaMapping  A map of table names to their corresponding indices in the current schema.
+	 * @param rightSchemaMapping    A map of table names to their corresponding indices in the right schema.
+	 * @return The extracted join condition expression if one exists; otherwise, {@code null}.
+	 */
 	private static Expression extractJoinCondition(Expression whereClause,
 												   Map<String, Integer> currentSchemaMapping,
 												   Map<String, Integer> rightSchemaMapping) {
@@ -473,10 +640,8 @@ public class BlazeDB {
 	}
 
 
-	/*
+	/**
 	 * Placeholder for a method to merge two schema mappings.
-	 * A schema mapping is expected to be a map from fully qualified column names
-	 * (e.g., "Student.A") to positions in a tuple.
 	 */
 	private static Map<String, Integer> mergeSchemaMappings(Map<String, Integer> leftMapping,
 															Map<String, Integer> rightMapping) {
@@ -511,7 +676,17 @@ public class BlazeDB {
 		}
 	}
 
-
+	/**
+	 * Creates a schema mapping for the specified table by reading its column information from the schema file.
+	 *
+	 * <p>This method reads the schema definition from "samples/db/schema.txt" and constructs a map where
+	 * each key is a fully qualified column name (e.g., "tableName.columnName") and the value is the
+	 * corresponding column index. It iterates through the schema file to find the line that starts with
+	 * the given table name and processes its columns to build the mapping.
+	 *
+	 * @param tableName The name of the table for which the schema mapping is to be created.
+	 * @return A map containing column names as keys and their respective indices as values.
+	 */
 	private static Map<String, Integer> createSchemaMapping(String tableName) {
 		Map<String, Integer> mapping = new HashMap<>();
 		// Specify the absolute path to your schema file

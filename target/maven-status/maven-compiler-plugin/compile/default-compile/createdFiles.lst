@@ -12,6 +12,9 @@ ed/inf/adbs/blazedb/operator/JoinOperator.class
 ed/inf/adbs/blazedb/operator/DuplicateEliminationOperator.class
 ed/inf/adbs/blazedb/expression/ExpressionEvaluator.class
 ed/inf/adbs/blazedb/Tuple.class
+ed/inf/adbs/blazedb/result/AggregationResult.class
+ed/inf/adbs/blazedb/result/OperatorInitializationResult.class
 ed/inf/adbs/blazedb/operator/SortOperator$TupleComparator.class
 ed/inf/adbs/blazedb/operator/ScanOperator.class
+ed/inf/adbs/blazedb/result/ProjectionResult.class
 ed/inf/adbs/blazedb/BlazeDB$2.class

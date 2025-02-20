@@ -1,5 +1,6 @@
 package ed.inf.adbs.blazedb.operator;
 import ed.inf.adbs.blazedb.Catalog;
+import ed.inf.adbs.blazedb.SchemaProvider;
 import ed.inf.adbs.blazedb.Tuple;
 
 import java.io.BufferedReader;
@@ -9,7 +10,7 @@ import java.io.IOException;
 import java.util.*;
 
 
-public class ScanOperator extends Operator {
+public class ScanOperator extends Operator implements SchemaProvider {
     private String tableName;
     private BufferedReader reader;
     private String filePath;
@@ -18,6 +19,8 @@ public class ScanOperator extends Operator {
     private Map<String, Integer> schemaMapping;
     // Flag indicating whether the file contains a header row.
     private boolean hasHeader;
+    private Set<String> prunedSchema;
+
 
     /**
      * Constructs a ScanOperator to scan the table with the given name.
@@ -122,6 +125,16 @@ public class ScanOperator extends Operator {
             // Handle error if needed.
         }
         openFileScan();
+    }
+
+    public void setPrunedSchema(Set<String> schema) {
+        this.prunedSchema = schema;
+    }
+
+    @Override
+    public List<String> getOutputColumns() {
+        // Convert the set to a list. Adjust if your ordering is important.
+        return new ArrayList<>(prunedSchema);
     }
 
     /**

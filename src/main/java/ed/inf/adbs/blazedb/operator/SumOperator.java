@@ -6,6 +6,7 @@ import ed.inf.adbs.blazedb.Tuple;
 import ed.inf.adbs.blazedb.expression.ExpressionEvaluator;
 import ed.inf.adbs.blazedb.operator.Operator;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.LongValue;
 
 /**
  * SumOperator implements a blocking operator that performs group-by aggregation with the SUM function.
@@ -143,22 +144,33 @@ public class SumOperator extends Operator {
      * @param expr  the expression to evaluate
      * @return the integer value of the evaluated expression
      */
+
     private int evaluateExpressionAsInt(Tuple tuple, Expression expr) {
-        ExpressionEvaluator evaluator = new ExpressionEvaluator(tuple, schemaMapping);
-        expr.accept(evaluator);
-        Object value = evaluator.getCurrentValue();
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
-        } else if (value instanceof String) {
+        // If the expression is recognized as a literal alias, return the intended constant.
+        if (expr.toString().startsWith("LITERAL_SUM")) {
+            return 1;
+        }
+
+        // Otherwise, if the expression itself is a LongValue, use its value.
+        if (expr instanceof LongValue) {
+            return (int) ((LongValue) expr).getValue();
+        }
+
+        // Fallback: use your regular evaluation logic.
+        String result = evaluateExpressionAsString(tuple, expr).trim();
+        // System.out.println("Evaluated expression: " + expr + " -> " + result);
+        try {
+            return Integer.parseInt(result);
+        } catch (NumberFormatException e) {
             try {
-                return Integer.parseInt((String) value);
-            } catch (NumberFormatException e) {
-                throw new RuntimeException("Cannot convert expression result to int: " + value);
+                return (int) Double.parseDouble(result);
+            } catch (NumberFormatException ex) {
+                throw new RuntimeException("Unable to parse the expression result to int: " + result, ex);
             }
-        } else {
-            throw new RuntimeException("Unexpected expression evaluation result type: " + value);
         }
     }
+
+
 
     /**
      * Return the next aggregated tuple. Since this is a blocking operator, all

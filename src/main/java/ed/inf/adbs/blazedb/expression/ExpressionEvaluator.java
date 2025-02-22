@@ -61,17 +61,25 @@ public class ExpressionEvaluator implements ExpressionVisitor {
 
     @Override
     public void visit(Column column) {
-        String tableName = "";
-        if (column.getTable() != null && column.getTable().getName() != null) {
-            tableName = column.getTable().getName() + ".";
+        // Get the fully qualified name (e.g., "Car.Price")
+        String fullColumnName = column.getFullyQualifiedName();
+        // Look up the index using the schemaMapping.
+        Integer columnIndex = schemaMapping.get(fullColumnName);
+        if (columnIndex == null) {
+            throw new RuntimeException("Column " + fullColumnName + " not found in schema mapping.");
         }
-        String qualifiedColumnName = tableName + column.getColumnName();
-        Integer index = schemaMapping.get(qualifiedColumnName);
-        if (index == null) {
-            throw new IllegalArgumentException("Column " + qualifiedColumnName + " not found in schema mapping.");
+        String fieldValue = tuple.getFields().get(columnIndex);
+
+        // Attempt to parse the field value as a number.
+        try {
+            // You can adjust the parsing as needed (Long/Double) based on your schema.
+            currentValue = Long.parseLong(fieldValue);
+        } catch (NumberFormatException e) {
+            // If not numeric, retain the string value.
+            currentValue = fieldValue;
         }
-        currentValue = tuple.getInt(index);
     }
+
 
     @Override
     public void visit(CaseExpression caseExpression) {
@@ -382,8 +390,21 @@ public class ExpressionEvaluator implements ExpressionVisitor {
 
     @Override
     public void visit(GreaterThanEquals greaterThanEquals) {
+        // Evaluate left expression.
+        greaterThanEquals.getLeftExpression().accept(this);
+        Object leftValue = currentValue;
+        // Evaluate right expression.
+        greaterThanEquals.getRightExpression().accept(this);
+        Object rightValue = currentValue;
 
+        if (leftValue instanceof Number && rightValue instanceof Number) {
+            // Compare using double values.
+            currentValue = ((Number) leftValue).doubleValue() >= ((Number) rightValue).doubleValue();
+        } else {
+            throw new RuntimeException("Expression did not evaluate to a boolean: " + greaterThanEquals);
+        }
     }
+
 
     @Override
     public void visit(InExpression inExpression) {
@@ -424,12 +445,30 @@ public class ExpressionEvaluator implements ExpressionVisitor {
 
     @Override
     public void visit(MinorThanEquals minorThanEquals) {
+        // Evaluate left expression.
+        minorThanEquals.getLeftExpression().accept(this);
+        Object leftValue = currentValue;
+        // Evaluate right expression.
+        minorThanEquals.getRightExpression().accept(this);
+        Object rightValue = currentValue;
 
+        if (leftValue instanceof Number && rightValue instanceof Number) {
+            // Compare using double values.
+            currentValue = ((Number) leftValue).doubleValue() <= ((Number) rightValue).doubleValue();
+        } else {
+            throw new RuntimeException("Expression did not evaluate to a boolean: " + minorThanEquals);
+        }
     }
 
     @Override
     public void visit(NotEqualsTo notEqualsTo) {
-
+        Object leftResult = evaluateSubExpression(notEqualsTo.getLeftExpression());
+        Object rightResult = evaluateSubExpression(notEqualsTo.getRightExpression());
+        if (leftResult instanceof Number && rightResult instanceof Number) {
+            currentValue = (((Number) leftResult).longValue() != ((Number) rightResult).longValue());
+        } else {
+            currentValue = !leftResult.equals(rightResult);
+        }
     }
 
     @Override

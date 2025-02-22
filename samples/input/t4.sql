@@ -1,0 +1,1 @@
+SELECT Flight.FlightID, Flight.Price FROM Flight ORDER BY Flight.Price;

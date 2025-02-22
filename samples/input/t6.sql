@@ -1,0 +1,1 @@
+SELECT * FROM Airport, Flight WHERE Airport.AirportID = Flight.DepartureAirportID;

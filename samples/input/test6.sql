@@ -1,0 +1,1 @@
+SELECT Car.ManufacturerID, SUM(Car.Price) FROM Car GROUP BY Car.ManufacturerID;

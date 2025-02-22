@@ -1,0 +1,1 @@
+SELECT * FROM Car, Manufacturer WHERE Car.ManufacturerID = Manufacturer.ManufacturerID;

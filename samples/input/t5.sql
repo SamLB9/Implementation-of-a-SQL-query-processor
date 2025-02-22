@@ -1,0 +1,1 @@
+SELECT Flight.FlightID, Airline.Name FROM Flight, Airline WHERE Flight.AirlineID = Airline.AirlineID;

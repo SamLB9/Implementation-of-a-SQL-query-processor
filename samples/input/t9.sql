@@ -1,0 +1,1 @@
+SELECT DISTINCT Flight.Duration FROM Flight;

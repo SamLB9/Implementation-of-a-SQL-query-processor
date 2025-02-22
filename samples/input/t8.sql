@@ -1,0 +1,1 @@
+SELECT Flight.FlightID, SUM(Flight.Price * Flight.Duration) FROM Flight GROUP BY Flight.FlightID;

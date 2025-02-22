@@ -1,0 +1,1 @@
+SELECT * FROM Flight WHERE Flight.Duration > 400;

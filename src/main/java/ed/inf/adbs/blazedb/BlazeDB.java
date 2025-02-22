@@ -102,38 +102,18 @@ public class BlazeDB {
 			List<Expression> sumExpressions = aggregationResult.getSumExpressions();
 			Map<Expression, String> literalSumMapping = aggregationResult.getLiteralSumMapping();
 
+			// System.out.println("Has aggregation: " + hasAggregation);
+			// System.out.println("getOrderByElement: " + plainSelect.getOrderByElements());
+
 			// If no aggregation exists, we can project early.
 			if (!hasAggregation) {
-				List<String> queryColumnsOrdered = new ArrayList<>();
-				if (plainSelect.getSelectItems().size() == 1 &&
-						plainSelect.getSelectItems().get(0).toString().trim().equals("*")) {
-					// For SELECT *: use the complete schema mapping order.
-					queryColumnsOrdered.addAll(schemaMapping.keySet());
-				} else {
-					for (SelectItem item : plainSelect.getSelectItems()) {
-						String colName = item.toString().trim();
-						if (requiredColumns.contains(colName)) {
-							queryColumnsOrdered.add(colName);
-						} else {
-							System.err.println("Column " + colName + " not found in requiredColumns.");
-						}
-					}
-				}
-				// Create a new mapping (pruned mapping) based on the ordered query columns.
-				Map<String, Integer> prunedMapping = new LinkedHashMap<>();
-				for (String col : queryColumnsOrdered) {
-					Integer originalIndex = schemaMapping.get(col);
-					prunedMapping.put(col, originalIndex);
-				}
-				// System.out.println("Query columns ordered: " + queryColumnsOrdered);
-				// System.out.println("SchemaMapping after changing it:" + prunedMapping);
-				// Apply the projection operator early.
-				rootOperator = new ProjectionOperator(
-						rootOperator,
-						queryColumnsOrdered.toArray(new String[0]),
-						prunedMapping
-				);
+				// Replace the inline non-aggregation projection processing
+				// with a call to the synthetic helper method.
+				ProjectionResult projectionResult = processNonAggregationProjection(plainSelect, rootOperator, schemaMapping, requiredColumns);
+				rootOperator = projectionResult.getRootOperator();
+				schemaMapping = projectionResult.getSchemaMapping();
 			}
+
 			// --- Aggregation Processing ---
 			// If aggregation exists, then wrap the (full tuple) operator with the SumOperator.
 			if (hasAggregation) {
@@ -173,6 +153,10 @@ public class BlazeDB {
 				}
 			}
 
+			if (!hasAggregation) {
+				rootOperator = handleDuplicateElimination(plainSelect, rootOperator);
+			}
+			// System.out.println("SchemaMapping before projection processing: " + schemaMapping);
 
 			// --- Subsequent Projection Processing ---
 			// After aggregations (if any), you can still refine the tuple to match the exact output
@@ -186,8 +170,7 @@ public class BlazeDB {
 			);
 			rootOperator = projectionResult.getRootOperator();
 			schemaMapping = projectionResult.getSchemaMapping();
-			// --- Duplicate Elimination Handling ---
-			rootOperator = handleDuplicateElimination(plainSelect, rootOperator);
+			// System.out.println("SchemaMapping after projections: " + schemaMapping);
 			// --- Order By Handling ---
 			rootOperator = handleOrderBy(plainSelect, rootOperator, schemaMapping);
 			// --- Execute and Compare Output ---
@@ -197,6 +180,62 @@ public class BlazeDB {
 			e.printStackTrace();
 		}
 	}
+
+	private static ProjectionResult processNonAggregationProjection(
+			PlainSelect plainSelect,
+			Operator rootOperator,
+			Map<String, Integer> schemaMapping,
+			Set<String> requiredColumns) {
+
+		List<String> queryColumnsOrdered = new ArrayList<>();
+
+		// Handle SELECT * scenario.
+		if (plainSelect.getSelectItems().size() == 1 &&
+				plainSelect.getSelectItems().get(0).toString().trim().equals("*")) {
+			queryColumnsOrdered.addAll(schemaMapping.keySet());
+		} else {
+			// Add columns as specified in the SELECT clause.
+			for (SelectItem item : plainSelect.getSelectItems()) {
+				String colName = item.toString().trim();
+				if (requiredColumns.contains(colName)) {
+					queryColumnsOrdered.add(colName);
+					System.out.println("Required column: " + colName);
+				} else {
+					System.err.println("Column " + colName + " not found in requiredColumns.");
+				}
+			}
+		}
+
+		// Add missing ORDER BY columns.
+		if (plainSelect.getOrderByElements() != null) {
+			for (OrderByElement orderBy : plainSelect.getOrderByElements()) {
+				String orderCol = orderBy.toString().trim();
+				if (!queryColumnsOrdered.contains(orderCol)) {
+					queryColumnsOrdered.add(orderCol);
+					System.out.println("Adding ORDER BY column: " + orderCol);
+				}
+			}
+		}
+
+		// Create the pruned schema mapping based on the ordered query columns.
+		Map<String, Integer> prunedMapping = new LinkedHashMap<>();
+		for (String col : queryColumnsOrdered) {
+			Integer originalIndex = schemaMapping.get(col);
+			if (originalIndex != null) {
+				prunedMapping.put(col, originalIndex);
+			}
+		}
+
+		// Apply the ProjectionOperator.
+		rootOperator = new ProjectionOperator(
+				rootOperator,
+				queryColumnsOrdered.toArray(new String[0]),
+				prunedMapping
+		);
+
+		return new ProjectionResult(rootOperator, prunedMapping);
+	}
+
 
 
 	/**
@@ -355,6 +394,7 @@ public class BlazeDB {
 	}
 
 
+
 	/**
 	 * Handles the wrapping of the operator tree with SortOperator if ORDER BY clauses are present.
 	 *
@@ -365,11 +405,45 @@ public class BlazeDB {
 	 */
 	private static Operator handleOrderBy(PlainSelect plainSelect, Operator rootOperator, Map<String, Integer> schemaMapping) {
 		List<OrderByElement> orderByElements = plainSelect.getOrderByElements();
-		if (orderByElements != null && !orderByElements.isEmpty()) {
-			rootOperator = new SortOperator(rootOperator, orderByElements, schemaMapping);
+		if (orderByElements == null || orderByElements.isEmpty()) {
+			return rootOperator;
 		}
-		return rootOperator;
+
+		// Iterate over each ORDER BY element.
+		for (OrderByElement orderBy : orderByElements) {
+			// If the ORDER BY expression is not already a Column, try to convert it.
+			if (!(orderBy.getExpression() instanceof Column)) {
+				String exprStr = orderBy.getExpression().toString();
+
+				// The schemaMapping may contain "Car.Price" instead of "SUM(Car.Price)" so check:
+				if (!schemaMapping.containsKey(exprStr)) {
+					// If it's a SUM aggregate, extract the inner column name.
+					if (exprStr.toUpperCase().startsWith("SUM(") && exprStr.endsWith(")")) {
+						String innerColumn = exprStr.substring(4, exprStr.length() - 1).trim();
+						String matchingKey = null;
+						// Look for a matching key in a case and whitespace insensitive manner.
+						for (String key : schemaMapping.keySet()) {
+							if (key.trim().equalsIgnoreCase(innerColumn)) {
+								matchingKey = key;
+								break;
+							}
+						}
+						if (matchingKey != null) {
+							exprStr = matchingKey;
+						} else {
+							throw new IllegalArgumentException("ORDER BY expression is not a column: " + orderBy.getExpression());
+						}
+					} else {
+						throw new IllegalArgumentException("ORDER BY expression is not a column: " + orderBy.getExpression());
+					}
+				}
+				// Replace the expression with a Column using the resolved column name.
+				orderBy.setExpression(new Column(exprStr));
+			}
+		}
+		return new SortOperator(rootOperator, orderByElements, schemaMapping);
 	}
+
 
 	/**
 	 * Executes the final operator tree and compares the output with the expected results.
@@ -378,32 +452,55 @@ public class BlazeDB {
 	 * @param outputFile   The path to the output file where results are written.
 	 */
 	private static void executeAndCompareOutput(Operator rootOperator, String outputFile) {
-		// Execute the final operator tree
-		execute(rootOperator, outputFile);
+        // Execute the final operator tree
+        execute(rootOperator, outputFile);
 
-		// Extract query number from output file path
-		Pattern pattern = Pattern.compile("query(\\d+)\\.csv");
-		Matcher matcher = pattern.matcher(outputFile);
-		String queryNumber = "";
-		if (matcher.find()) {
-			queryNumber = matcher.group(1);
-		} else {
-			System.err.println("Could not extract query number from output file path: " + outputFile);
+        // Extract query number from output file path
+        Pattern pattern = Pattern.compile("query(\\d+)\\.csv");
+        Pattern pattern1 = Pattern.compile("test(\\d+)\\.csv");
+		Pattern pattern2 = Pattern.compile("t(\\d+)\\.csv");
+        Matcher matcher = pattern.matcher(outputFile);
+        Matcher matcher1 = pattern1.matcher(outputFile);
+		Matcher matcher2 = pattern2.matcher(outputFile);
+        String queryNumber = "";
+        String queryNumber1 = "";
+		String queryNumber2 = "";
+		boolean comparisonResult = false;
+		boolean comparisonResult1 = false;
+		boolean comparisonResult2 = false;
+        if (matcher.find()) {
+            queryNumber = matcher.group(1);
+        } else if (matcher1.find()) {
+            queryNumber1 = matcher1.group(1);
+		} else if (matcher2.find()) {
+			queryNumber2 = matcher2.group(1);
+        } else {
+            System.err.println("Could not extract query number from output file path: " + outputFile);
+        }
+
+        // Define expected output path
+        String expectedOutputPath = null;
+        String expectedOutputPath1 = null;
+		String expectedOutputPath2 = null;
+        if (queryNumber != "" && queryNumber1 == "" && queryNumber2 == "") {
+            expectedOutputPath = "samples/expected_output/query" + queryNumber + ".csv";
+            comparisonResult = FileComparator.compareFiles(outputFile, expectedOutputPath);
+        } else if (queryNumber1 != "" && queryNumber == "" && queryNumber2 == "") {
+            expectedOutputPath1 = "samples/expected_output/test" + queryNumber1 + ".csv";
+			comparisonResult1 = FileComparator.compareFiles(outputFile, expectedOutputPath1);
+        } else {
+			expectedOutputPath2 = "samples/expected_output/t" + queryNumber2 + ".csv";
+			comparisonResult2 = FileComparator.compareFiles(outputFile, expectedOutputPath2);
 		}
 
-		// Define expected output path
-		String expectedOutputPath = "samples/expected_output/query"
-				+ queryNumber + ".csv";
-
-		// Compare the actual output with the expected output
-		boolean comparisonResult = FileComparator.compareFiles(outputFile, expectedOutputPath);
-
-		if (comparisonResult) {
-			System.out.println("Output matches the expected results.");
-		} else {
-			System.err.println("Output does not match the expected results.");
-		}
-	}
+        if (comparisonResult) {
+            System.out.println("Output matches the expected results.");
+        } else if (comparisonResult1) {
+            System.out.println("Output matches the expected results.");
+        } else {
+            System.out.println("Output does not match the expected results.");
+        }
+    }
 
 	/**
 	 * Initializes the operator tree and schema mapping by parsing the SQL query and setting up joins.
@@ -659,17 +756,16 @@ public class BlazeDB {
 			// Build a join tree based on all table names and the WHERE clause.
 			rootOperator = buildJoinTree(tableNames, plainSelect.getWhere());
 			// Compute the merged schema mapping for the join operators.
-			if (schemaMapping == null) {
-				if (tableNames.size() == 1) {
-					schemaMapping = createSchemaMapping(tableNames.get(0));
-				} else {
-					Map<String, Integer> mapping = createSchemaMapping(tableNames.get(0));
-					for (int i = 1; i < tableNames.size(); i++) {
-						Map<String, Integer> nextMapping = createSchemaMapping(tableNames.get(i));
-						mapping = mergeSchemaMappings(mapping, nextMapping);
-					}
-					schemaMapping = mapping;
+
+			if (tableNames.size() == 1) {
+				schemaMapping = createSchemaMapping(tableNames.get(0));
+			} else {
+				Map<String, Integer> mapping = createSchemaMapping(tableNames.get(0));
+				for (int i = 1; i < tableNames.size(); i++) {
+					Map<String, Integer> nextMapping = createSchemaMapping(tableNames.get(i));
+					mapping = mergeSchemaMappings(mapping, nextMapping);
 				}
+					schemaMapping = mapping;
 			}
 		} else {
 			// No join: use a simple scan.
@@ -686,6 +782,8 @@ public class BlazeDB {
 
 		return new OperatorInitializationResult(rootOperator, schemaMapping);
 	}
+
+
 
 	/**
 	 * Build a join tree given a list of table names and a WHERE clause.
@@ -751,14 +849,19 @@ public class BlazeDB {
 
 
 	/**
-	 * Extracts the selection condition that references only the given table.
-	 * It recursively checks the given whereClause and picks out subexpressions that
-	 * mention only the columns from tableName.
+	 * Extracts and combines all selection conditions from the given WHERE clause that reference only the specified table.
 	 *
-	 * @param whereClause the full WHERE clause expression
-	 * @param tableName the name of the table for which to extract local conditions
-	 * @return a new Expression if one or more conditions refer solely to the given table;
-	 *         null if none exist.
+	 * This method implements predicate combination for selection pushdown. It recursively examines the WHERE clause
+	 * and picks out subexpressions that mention only columns from the specified table (using isConditionLocal()).
+	 * If the entire expression is local to the table, it returns that expression. If the WHERE clause is a conjunction
+	 * (an AndExpression), it recursively extracts the left and right conditions that are local, and if both exist,
+	 * it combines them into a single composite predicate using an AndExpression. If only one side is local, that local
+	 * predicate is returned. If no part of the expression applies solely to the table, the method returns null.
+	 *
+	 * @param whereClause the full WHERE clause expression.
+	 * @param tableName   the name of the table for which to extract and combine local selection conditions.
+	 * @return a new Expression that combines (using AND) all conditions referring solely to the given table,
+	 *         or null if no such condition exists.
 	 */
 	private static Expression extractSelectionCondition(Expression whereClause, String tableName) {
 		if (whereClause == null) {

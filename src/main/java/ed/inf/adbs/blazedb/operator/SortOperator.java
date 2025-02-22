@@ -45,6 +45,9 @@ public class SortOperator extends Operator {
             while ((tuple = child.getNextTuple()) != null) {
                 sortedTuples.add(tuple);
             }
+            // System.out.println("SortOperator getNextTuple: Sorted tuples: " + sortedTuples);
+            // System.out.println("SortOperator getNextTuple: Schema mapping: " + schemaMapping);
+            // System.out.println("SortOperator getNextTuple: Schema mapping size: " + schemaMapping.size());
             Collections.sort(sortedTuples, new TupleComparator(orderByElements, schemaMapping));
         }
 
@@ -101,11 +104,13 @@ public class SortOperator extends Operator {
         private int compareByColumn(Tuple t1, Tuple t2, OrderByElement orderBy) {
             String columnName = getColumnName(orderBy);   // Get fully qualified column name
             Integer index = schemaMapping.get(columnName);
+            // System.out.println("SortOperator: Column name: " + columnName + " -> Index: " + index);
+            // System.out.println("SortOperator: Schema mapping" + schemaMapping);
 
             if (index == null) {
                 throw new IllegalArgumentException("Column " + columnName + " is not found in the schema mapping.");
             }
-
+            // System.out.println("SortOperator: t1: " + t1 + "  t2: " + t2);
             // Now retrieve the actual values based on your requirements.
             // The example below assumes integer values.
             int value1 = t1.getInt(index);

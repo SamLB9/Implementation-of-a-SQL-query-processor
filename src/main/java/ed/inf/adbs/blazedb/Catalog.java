@@ -1,26 +1,18 @@
 package ed.inf.adbs.blazedb;
 
-import java.util.HashMap;
-import java.util.Map;
-
+import java.io.File;
 
 public class Catalog {
     // Singleton instance
     private static Catalog instance = null;
-    // Mapping of table names to file paths
-    private Map<String, String> tableFilePaths;
 
+    // Base directory where all table files are stored.
+    private final String baseDir;
 
-    // Private constructor prevents instantiation from other classes
     private Catalog() {
-        tableFilePaths = new HashMap<>();
-        // Initialize with table information.
-        // For example:
-        tableFilePaths.put("Student", "samples/db/data/Student.csv");
-        tableFilePaths.put("Course", "samples/db/data/Course.csv");
-        tableFilePaths.put("Enrolled", "samples/db/data/Enrolled.csv");
+        // The base directory
+        this.baseDir = "samples/db/data/";
     }
-
 
     /**
      * Retrieves the single instance of Catalog.
@@ -33,25 +25,38 @@ public class Catalog {
         return instance;
     }
 
-
     /**
      * Returns the file path associated with the given table name.
+     * It dynamically constructs the path with the assumption that each table
+     * is stored as a CSV file in the base directory.
      *
      * @param tableName name of the table whose file path is to be retrieved.
-     * @return file path as a String, or null if the table name is not found.
+     * @return file path as a String if the file exists, otherwise null.
      */
     public String getFilePathForTable(String tableName) {
-        return tableFilePaths.get(tableName);
+        String filePath = baseDir + tableName + ".csv";
+        File file = new File(filePath);
+        if (file.exists()) {
+            return filePath;
+        } else {
+            System.err.println("Table file not found for table: " + tableName);
+            return null;
+        }
     }
-
 
     /**
      * Adds or updates a table entry in the catalog.
+     * With dynamic file path resolution, this method can be used to override
+     * the default file location if needed.
      *
      * @param tableName The name of the table.
      * @param filePath The file path where the table data is stored.
      */
     public void addTable(String tableName, String filePath) {
-        tableFilePaths.put(tableName, filePath);
+        // This method can be implemented to override the default file path resolution
+        // For now, it could simply log a warning that dynamic file lookup is being used.
+        System.out.println("Warning: Overriding default file lookup. New file path for table "
+                + tableName + " is " + filePath);
+        // If you wish to support this behavior, you can add an internal map for overrides.
     }
 }

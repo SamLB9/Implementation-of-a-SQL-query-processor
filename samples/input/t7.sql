@@ -1,0 +1,1 @@
+SELECT Flight.DepartureAirportID, SUM(Flight.Price) FROM Flight GROUP BY Flight.DepartureAirportID;

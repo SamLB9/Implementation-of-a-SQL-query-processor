@@ -1,0 +1,1 @@
+SELECT DISTINCT Car.Year FROM Car;

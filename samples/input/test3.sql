@@ -1,0 +1,1 @@
+SELECT DISTINCT Owner.OwnerID, Owner.Age FROM Owner;

@@ -1,0 +1,1 @@
+SELECT SUM(Car.Price * Car.Year) FROM Car;

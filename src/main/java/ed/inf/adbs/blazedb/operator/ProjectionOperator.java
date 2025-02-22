@@ -4,16 +4,33 @@ import ed.inf.adbs.blazedb.Tuple;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public class ProjectionOperator extends Operator {
     private Operator child;
     private String[] projectionColumns;
     private Map<String, Integer> schemaMapping;
 
+    // Pre-calculate the unique projection column order.
+    private String[] uniqueProjectionColumns;
+
     public ProjectionOperator(Operator child, String[] projectionColumns, Map<String, Integer> schemaMapping) {
         this.child = child;
         this.projectionColumns = projectionColumns;
         this.schemaMapping = schemaMapping;
+        this.uniqueProjectionColumns = removeDuplicateColumns(projectionColumns);
+    }
+
+    /**
+     * Removes duplicate columns while maintaining order.
+     */
+    private String[] removeDuplicateColumns(String[] columns) {
+        Set<String> unique = new LinkedHashSet<>();
+        for (String col : columns) {
+            unique.add(col);
+        }
+        return unique.toArray(new String[0]);
     }
 
     @Override
@@ -23,26 +40,24 @@ public class ProjectionOperator extends Operator {
             return null;
         }
 
-        List<String> fullFields = fullTuple.getFields();
-
-        // If the tuple is already projected (i.e. its size equals the number of projection columns),
-        // we assume that projection has been applied already and return it.
-        if(fullFields.size() == projectionColumns.length) {
+        // If the tuple is already projected, we assume it has been done.
+        if(fullTuple.getFields().size() == uniqueProjectionColumns.length) {
             return fullTuple;
         }
 
-        // System.out.println("Full Tuple: " + fullFields);
+        // Build the projected tuple using the unique projection columns.
+        List<String> fullFields = fullTuple.getFields();
         List<String> projectedFields = new ArrayList<>();
-        for (String col : projectionColumns) {
+
+        for (String col : uniqueProjectionColumns) {
             Integer index = schemaMapping.get(col);
-            // System.out.println("Mapping for " + col + " = " + index);
             if (index == null || index >= fullFields.size()) {
                 projectedFields.add("");
             } else {
                 projectedFields.add(fullFields.get(index));
             }
         }
-        // System.out.println("Projected Tuple: " + projectedFields);
+
         return new Tuple(projectedFields);
     }
 

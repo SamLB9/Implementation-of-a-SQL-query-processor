@@ -1,4 +1,10 @@
 Student A B C D
 Course E F G
 Enrolled A E H
-
+Car CarID Model Year ManufacturerID Price
+Manufacturer ManufacturerID Name Country
+Owner OwnerID Name Age
+Service ServiceID CarID ServiceDate Cost
+Airport AirportID Name City Country
+Flight FlightID AirlineID DepartureAirportID ArrivalAirportID Duration Price
+Airline AirlineID Name Country

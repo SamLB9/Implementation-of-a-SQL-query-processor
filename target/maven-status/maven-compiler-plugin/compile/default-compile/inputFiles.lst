@@ -5,6 +5,7 @@
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/Operator.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/ProjectionOperator.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/JoinOperator.java
+/Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/BlazeDB1.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/result/ProjectionResult.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/SumOperator.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/result/OperatorInitializationResult.java

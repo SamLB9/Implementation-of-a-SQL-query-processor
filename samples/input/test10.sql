@@ -1,0 +1,1 @@
+SELECT * FROM Car, Service WHERE Car.CarID = Service.CarID;

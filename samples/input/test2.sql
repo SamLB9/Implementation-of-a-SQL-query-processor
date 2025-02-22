@@ -1,0 +1,1 @@
+SELECT Car.CarID, Car.Model FROM Car WHERE Car.Price >= 25000;

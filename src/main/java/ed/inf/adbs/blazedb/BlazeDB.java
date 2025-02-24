@@ -81,104 +81,128 @@ public class BlazeDB {
 
 	public static void executeQueryPlan(String inputFile, String outputFile, String databaseDir) {
 		try (FileReader fileReader = new FileReader(inputFile)) {
-			// Initialize operator tree and schema mapping (preserving full schema)
+			// 1. Initialize operator tree and full schema mapping.
 			List<String> tableNames = new ArrayList<>();
 			OperatorInitializationResult initResult = initializeAndParse(fileReader, tableNames, databaseDir);
 			Operator rootOperator = initResult.getRootOperator();
 			Map<String, Integer> schemaMapping = initResult.getSchemaMapping();
 
-			// Parse the SQL query to obtain the select body.
+			// 2. Parse the SQL query.
 			Statement statement = CCJSqlParserUtil.parse(new FileReader(inputFile));
 			Select selectStatement = (Select) statement;
 			PlainSelect plainSelect = (PlainSelect) selectStatement.getSelectBody();
 
+			// 3. Collect required columns.
 			String defaultTableName = tableNames.get(0);
 			Set<String> requiredColumns = collectRequiredColumns(plainSelect, defaultTableName, databaseDir, schemaMapping);
 			System.out.println("Required columns: " + requiredColumns);
 
-			// Process aggregations before projection if they exist.
+			// 4. Process aggregations.
 			AggregationResult aggregationResult = processAggregations(plainSelect);
 			boolean hasAggregation = aggregationResult.hasAggregation();
 			List<Expression> sumExpressions = aggregationResult.getSumExpressions();
 			Map<Expression, String> literalSumMapping = aggregationResult.getLiteralSumMapping();
 
-			// System.out.println("Has aggregation: " + hasAggregation);
-			// System.out.println("getOrderByElement: " + plainSelect.getOrderByElements());
-
-			// If no aggregation exists, we can project early.
+			// 5. Non-aggregation branch: project early if no aggregation.
 			if (!hasAggregation) {
-				// Replace the inline non-aggregation projection processing
-				// with a call to the synthetic helper method.
-				ProjectionResult projectionResult = processNonAggregationProjection(plainSelect, rootOperator, schemaMapping, requiredColumns);
-				rootOperator = projectionResult.getRootOperator();
-				schemaMapping = projectionResult.getSchemaMapping();
+				ProjectionResult projResult = processNonAggregationProjection(plainSelect, rootOperator, schemaMapping, requiredColumns);
+				rootOperator = projResult.getRootOperator();
+				schemaMapping = projResult.getSchemaMapping();
 			}
-
-			// --- Aggregation Processing ---
-			// If aggregation exists, then wrap the (full tuple) operator with the SumOperator.
+			// 6. Aggregation branch: build pruned mapping and wrap with SumOperator.
 			if (hasAggregation) {
-				// Build the pruned mapping from the requiredColumns
-				Map<String, Integer> prunedMapping = new LinkedHashMap<>();
-				for (String col : requiredColumns) {
-					Integer originalIndex = schemaMapping.get(col);
-					if (originalIndex != null) {
-						prunedMapping.put(col, originalIndex);
-					} else {
-						System.err.println("Column " + col + " not found in full schema mapping.");
-					}
-				}
-				// System.out.println("Pruned schema mapping for aggregation: " + prunedMapping);
-
-				// For literal expressions in SUM aggregates, update prunedMapping
-				// so that any produced alias (e.g., "LITERAL_SUM_0") is defined.
-				if (!literalSumMapping.isEmpty()) {
-					int baseSize = prunedMapping.size();
-					for (String alias : literalSumMapping.values()) {
-						prunedMapping.put(alias, baseSize++);
-					}
-				}
-
-				// Prepare group-by expressions from GROUP BY clause:
+				Map<String, Integer> prunedMapping = processAggregationBranch(plainSelect, requiredColumns, schemaMapping, sumExpressions, literalSumMapping);
+				// Retrieve GROUP BY expressions.
 				List<Expression> groupByExpressions = new ArrayList<>();
 				if (plainSelect.getGroupBy() != null && plainSelect.getGroupBy().getGroupByExpressions() != null) {
 					groupByExpressions.addAll(plainSelect.getGroupBy().getGroupByExpressions());
 				}
-
-				// Create a new SumOperator instance and let it compute the aggregates,
-				// including SUM(1) correctly for each group.
 				rootOperator = new SumOperator(rootOperator, groupByExpressions, sumExpressions, prunedMapping);
 				if (rootOperator instanceof SumOperator) {
-					// Update the current mapping based on the SumOperator's mapping.
 					schemaMapping = ((SumOperator) rootOperator).getSchemaMapping();
 				}
 			}
 
+			// 7. For non-aggregation queries, handle duplicate elimination.
 			if (!hasAggregation) {
 				rootOperator = handleDuplicateElimination(plainSelect, rootOperator);
 			}
-			// System.out.println("SchemaMapping before projection processing: " + schemaMapping);
 
-			// --- Subsequent Projection Processing ---
-			// After aggregations (if any), you can still refine the tuple to match the exact output
-			// specified in the SELECT clause via processProjections.
-			ProjectionResult projectionResult = processProjections(
-					plainSelect,
-					rootOperator,
-					schemaMapping,
-					hasAggregation,
-					tableNames
-			);
+			// 8. Process subsequent projection.
+			ProjectionResult projectionResult = processProjections(plainSelect, rootOperator, schemaMapping, hasAggregation, tableNames);
 			rootOperator = projectionResult.getRootOperator();
 			schemaMapping = projectionResult.getSchemaMapping();
-			// System.out.println("SchemaMapping after projections: " + schemaMapping);
-			// --- Order By Handling ---
+			System.out.println("SchemaMapping after projections: " + schemaMapping);
+
+			// 9. For aggregation queries, rebuild final schema mapping to match SELECT items.
+			if (hasAggregation) {
+				schemaMapping = rebuildSchemaMappingForSelect(plainSelect, schemaMapping);
+				System.out.println("Final schemaMapping for ORDER BY: " + schemaMapping);
+			}
+
+			// 10. Order By processing.
 			rootOperator = handleOrderBy(plainSelect, rootOperator, schemaMapping);
-			// --- Execute and Compare Output ---
+
+			// 11. Execute query plan.
 			executeAndCompareOutput(rootOperator, outputFile);
 		} catch (Exception e) {
 			System.err.println("Error executing query plan: " + e.getMessage());
 			e.printStackTrace();
 		}
+	}
+
+	/**
+	 * Processes the aggregation branch by building a pruned mapping from the required columns and literal SUM aggregates.
+	 */
+	private static Map<String, Integer> processAggregationBranch(PlainSelect plainSelect, Set<String> requiredColumns,
+																 Map<String, Integer> schemaMapping,
+																 List<Expression> sumExpressions,
+																 Map<Expression, String> literalSumMapping) {
+		Map<String, Integer> prunedMapping = new LinkedHashMap<>();
+		for (String col : requiredColumns) {
+			Integer originalIndex = schemaMapping.get(col);
+			if (originalIndex != null) {
+				prunedMapping.put(col, originalIndex);
+			} else {
+				System.err.println("Column " + col + " not found in full schema mapping.");
+			}
+		}
+		if (!literalSumMapping.isEmpty()) {
+			int baseSize = prunedMapping.size();
+			// For each SUM aggregate, add an entry with its literal string as key.
+			for (Expression sumExpr : literalSumMapping.keySet()) {
+				String sumExprStr = sumExpr.toString().trim();
+				if (!prunedMapping.containsKey(sumExprStr)) {
+					prunedMapping.put(sumExprStr, baseSize++);
+				}
+			}
+		}
+		return prunedMapping;
+	}
+
+	/**
+	 * Rebuilds the final schema mapping so that it contains exactly the SELECT items (re-indexed from 0).
+	 */
+	private static Map<String, Integer> rebuildSchemaMappingForSelect(PlainSelect plainSelect, Map<String, Integer> schemaMapping) {
+		Map<String, Integer> finalMapping = new LinkedHashMap<>();
+		List<? extends SelectItem> selectItems = plainSelect.getSelectItems();
+		for (SelectItem item : selectItems) {
+			String key = item.toString().trim();
+			Integer idx = schemaMapping.get(key);
+			if (idx == null) {
+				for (Map.Entry<String, Integer> entry : schemaMapping.entrySet()) {
+					if (entry.getKey().equalsIgnoreCase(key)) {
+						idx = entry.getValue();
+						break;
+					}
+				}
+			}
+			if (idx == null) {
+				System.err.println("Cannot find column " + key + " in schema mapping.");
+			}
+			finalMapping.put(key, finalMapping.size());
+		}
+		return finalMapping;
 	}
 
 	private static ProjectionResult processNonAggregationProjection(
@@ -411,21 +435,24 @@ public class BlazeDB {
 
 		// Iterate over each ORDER BY element.
 		for (OrderByElement orderBy : orderByElements) {
-			// If the ORDER BY expression is not already a Column, try to convert it.
+			// If the ORDER BY expression is not already a Column, try to resolve it.
 			if (!(orderBy.getExpression() instanceof Column)) {
-				String exprStr = orderBy.getExpression().toString();
+				String exprStr = orderBy.getExpression().toString().trim();
 
-				// The schemaMapping may contain "Car.Price" instead of "SUM(Car.Price)" so check:
+				// If the schema mapping already has this key, we're fine.
 				if (!schemaMapping.containsKey(exprStr)) {
-					// If it's a SUM aggregate, extract the inner column name.
+					// If it's a SUM aggregate, try to find a matching key in the mapping.
 					if (exprStr.toUpperCase().startsWith("SUM(") && exprStr.endsWith(")")) {
-						String innerColumn = exprStr.substring(4, exprStr.length() - 1).trim();
+						String innerExpr = exprStr.substring(4, exprStr.length() - 1).trim();
 						String matchingKey = null;
-						// Look for a matching key in a case and whitespace insensitive manner.
+						// Look for a key in schemaMapping that is also a SUM aggregate with the same inner expression.
 						for (String key : schemaMapping.keySet()) {
-							if (key.trim().equalsIgnoreCase(innerColumn)) {
-								matchingKey = key;
-								break;
+							if (key.toUpperCase().startsWith("SUM(") && key.endsWith(")")) {
+								String keyInner = key.substring(4, key.length() - 1).trim();
+								if (keyInner.equalsIgnoreCase(innerExpr)) {
+									matchingKey = key;
+									break;
+								}
 							}
 						}
 						if (matchingKey != null) {

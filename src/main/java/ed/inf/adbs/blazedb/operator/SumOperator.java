@@ -9,9 +9,21 @@ import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 
 /**
- * SumOperator implements a blocking operator that performs group-by aggregation with the SUM function.
- * It reads all tuples from its child operator, organizes them into groups based on given group-by expressions,
- * and computes SUM aggregates (each of which may be a single term or a product of terms).
+ * The {@code SumOperator} class implements a blocking operator that performs group-by aggregation using the SUM function.
+ * It reads all tuples from its child operator, organizes them into groups based on specified group-by expressions,
+ * and computes SUM aggregates for each group. This operator is essential for executing SQL queries that require
+ * sum-based aggregations over grouped data.
+ *
+ * Key Responsibilities:
+ *  - Tuple Retrieval: Fetches all tuples from the child operator to prepare for aggregation.
+ *  - Grouping Mechanism: Organizes tuples into groups based on the provided group-by expressions.
+ *  - Aggregation Computation: Calculates SUM aggregates for each group using the specified expressions.
+ *  - Result Management: Stores aggregated results and provides them sequentially upon request.
+ *
+ * Implementation Details:
+ *     The operator fetches all input tuples from the child operator during the first call to {@link #getNextTuple()}.
+ *     Tuples are grouped based on the specified group-by expressions, and SUM aggregates are computed for each group.
+ *     Aggregated results are stored in the {@code outputTuples} list and returned sequentially.
  */
 public class SumOperator extends Operator {
 
@@ -23,11 +35,16 @@ public class SumOperator extends Operator {
     private Map<String, Integer> schemaMapping;
 
     /**
-     * Constructor.
+     * Constructs a {@code SumOperator} with the specified child operator, group-by expressions, sum expressions, and schema mapping.
+     * This constructor initializes the sum operator by setting its child operator, the expressions used for grouping,
+     * the expressions to be aggregated using SUM, and the schema mapping required to resolve column references within the tuples.
      *
-     * @param child             the child operator
-     * @param groupByExpressions list of expressions to group by (e.g., columns)
-     * @param sumExpressions     list of expressions representing the SUM aggregates
+     * @param child             The child {@link Operator} providing input tuples (e.g., an instance of {@link ScanOperator}).
+     * @param groupByExpressions A {@link List} of {@link Expression} specifying the criteria for grouping tuples.
+     * @param sumExpressions     A {@link List} of {@link Expression} defining the SUM aggregates to compute for each group.
+     * @param schemaMapping      A {@link Map} that associates column names with their respective indices in the tuples.
+     *
+     * @throws IllegalArgumentException if {@code child}, {@code groupByExpressions}, {@code sumExpressions}, or {@code schemaMapping} is {@code null}.
      */
     public SumOperator(Operator child, List<Expression> groupByExpressions, List<Expression> sumExpressions, Map<String, Integer> schemaMapping) {
         this.child = child;
@@ -40,7 +57,12 @@ public class SumOperator extends Operator {
     }
 
     /**
-     * Reads all input tuples from the child operator, organizes them into groups, and computes the aggregate sums.
+     * Reads all input tuples from the child operator, organizes them into groups based on the group-by expressions,
+     * and computes the SUM aggregates for each group.
+     * This method performs the core aggregation logic by iterating over all input tuples, determining their group,
+     * and updating the corresponding aggregate sums. The results are stored in the {@code outputTuples} list.
+     *
+     * @throws RuntimeException if an error occurs during aggregation computation.
      */
     private void computeAggregation() {
         // Check if there is no GROUP BY clause.
@@ -114,18 +136,26 @@ public class SumOperator extends Operator {
         }
     }
 
+    /**
+     * Retrieves the current schema mapping, associating column names with their respective indices in the tuples.
+     *
+     * @return A {@link Map} representing the schema mapping.
+     */
     public Map<String, Integer> getSchemaMapping() {
         return this.schemaMapping;
     }
 
     /**
-     * Evaluates an expression on a tuple and returns the result as a String.
-     * This is a placeholder helper method; you need to implement a proper expression evaluation
-     * (possibly using a visitor) based on your system's design.
+     * Evaluates an {@link Expression} on a given {@link Tuple} and returns the result as a {@code String}.
+     * This is a placeholder helper method intended to evaluate expressions such as column references.
+     * In a complete implementation, this method should utilize an expression evaluator or visitor pattern
+     * to handle various expression types based on the system's design.
      *
-     * @param tuple the input tuple
-     * @param expr  the expression to evaluate (e.g., a column reference)
-     * @return the result as a String
+     * @param tuple The input {@link Tuple} on which the expression is to be evaluated.
+     * @param expr  The {@link Expression} to evaluate (e.g., a column reference).
+     * @return The result of the expression evaluation as a {@code String}.
+     *
+     * @throws UnsupportedOperationException if the expression type is not supported.
      */
     private String evaluateExpressionAsString(Tuple tuple, Expression expr) {
         ExpressionEvaluator evaluator = new ExpressionEvaluator(tuple, schemaMapping);
@@ -137,14 +167,17 @@ public class SumOperator extends Operator {
 
 
     /**
-     * Evaluates an expression on a tuple and returns the result as an integer.
-     * This works for expressions used in the SUM aggregates.
+     * Evaluates an {@link Expression} on a given {@link Tuple} and returns the result as an integer.
+     * This method is specifically tailored for expressions used in the SUM aggregates. It assumes that
+     * the expression can be evaluated to an integer value.
      *
-     * @param tuple the input tuple
-     * @param expr  the expression to evaluate
-     * @return the integer value of the evaluated expression
+     * @param tuple The input {@link Tuple} on which the expression is to be evaluated.
+     * @param expr  The {@link Expression} to evaluate.
+     * @return The integer value resulting from the expression evaluation.
+     *
+     * @throws NumberFormatException        if the expression cannot be parsed into an integer.
+     * @throws UnsupportedOperationException if the expression type is not supported.
      */
-
     private int evaluateExpressionAsInt(Tuple tuple, Expression expr) {
         // If the expression is recognized as a literal alias, return the intended constant.
         if (expr.toString().startsWith("LITERAL_SUM")) {
@@ -170,13 +203,14 @@ public class SumOperator extends Operator {
         }
     }
 
-
-
     /**
-     * Return the next aggregated tuple. Since this is a blocking operator, all
-     * input is processed during initialization (or the first call).
+     * Retrieves the next aggregated {@link Tuple} based on the computed SUM aggregates.
+     * If the aggregation has not been performed yet, this method triggers the computation by calling {@link #computeAggregation()}.
+     * It then sequentially returns each aggregated tuple from the {@code outputTuples} list until no more tuples are available.
      *
-     * @return the next aggregated tuple or null if there are no more tuples.
+     * @return The next aggregated {@link Tuple}, or {@code null} if all aggregated tuples have been returned.
+     *
+     * @throws RuntimeException if an error occurs during tuple retrieval or aggregation.
      */
     @Override
     public Tuple getNextTuple() {
@@ -197,7 +231,9 @@ public class SumOperator extends Operator {
 
 
     /**
-     * Resets the operator by letting the consumer read the aggregated results again.
+     * Resets the {@code SumOperator} to its initial state, allowing for re-iteration over the aggregated results.
+     * This method clears the current index pointer, enabling the consumer to read the aggregated tuples from the beginning again.
+     * It does not recompute the aggregation unless {@link #getNextTuple()} is called after a reset.
      */
     @Override
     public void reset() {

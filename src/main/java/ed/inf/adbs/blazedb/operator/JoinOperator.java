@@ -98,7 +98,19 @@ public class JoinOperator extends Operator {
         return null;
     }
 
-    // A helper method to combine two tuples (implement as needed to merge the fields).
+    /**
+     * Combines two {@link Tuple} instances into a single joined {@link Tuple}.
+     *
+     * This method merges the fields from both the left and right tuples based on the provided
+     * {@code schemaMapping}. It ensures that each field is correctly positioned in the resulting
+     * joined tuple.
+     *
+     * @param leftTuple  The tuple from the left (outer) operator.
+     * @param rightTuple The tuple from the right (inner) operator.
+     * @return A new {@link Tuple} representing the joined tuple.
+     *
+     * @throws IllegalArgumentException if either {@code leftTuple} or {@code rightTuple} is {@code null}.
+     */
     private Tuple combineTuples(Tuple leftTuple, Tuple rightTuple) {
         List<String> combinedFields = new ArrayList<>(leftTuple.getFields());
         combinedFields.addAll(rightTuple.getFields());
@@ -106,7 +118,10 @@ public class JoinOperator extends Operator {
     }
 
     /**
-     * Resets the JoinOperator and its child operators.
+     * Resets the {@code JoinOperator} and its child operators to their initial states.
+     *
+     * This method clears any internal buffers and resets both the left and right child operators,
+     * allowing the join operation to be re-executed from the beginning.
      */
     @Override
     public void reset() {

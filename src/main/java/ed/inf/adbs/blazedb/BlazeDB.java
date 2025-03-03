@@ -33,16 +33,17 @@ import java.util.List;
  * BlazeDB is a lightweight, in-memory database system designed to execute SQL queries efficiently.
  *
  * Key Features and Functionalities:
- *   SQL Query Parsing: Parses SQL SELECT queries from input files using a SQL parser.
- *   Operator Tree Initialization: Constructs an operator tree that represents the execution plan of the parsed query.
- *   Aggregation Handling: Processes aggregation functions such as SUM and manages grouping operations.
- *   Projection Processing: Selects the required columns based on the SELECT clause of the query.
- *   Duplicate Elimination: Removes duplicate records when DISTINCT or GROUP BY clauses are present.
- *   Sorting: Implements ORDER BY functionality to sort the query results as specified.
- *   Result Execution and Comparison: Executes the operator tree to generate query results and compares them against expected outputs for verification.
+ *   - SQL Query Parsing: Uses a SQL parser to read and parse SQL SELECT queries from input files.
+ *   - Operator Tree Initialization: Builds a left-deep operator tree representing the execution plan, including optimized join processing where join conditions are applied during tuple combination.
+ *   - Aggregation Handling: Evaluates aggregation functions such as SUM and manages grouping operations.
+ *   - Projection Processing: Prunes and re-indexes the schema mappings to select the required columns as per the SELECT clause.
+ *   - Duplicate Elimination: Removes duplicate records when DISTINCT or GROUP BY clauses are specified.
+ *   - Sorting: Implements ORDER BY functionality to sort query results as required.
+ *   - Result Execution and Verification: Executes the operator tree to generate query results and compares them with expected outputs.
+ *   - Database Directory: Accepts a database directory parameter for locating the underlying data files.
  *
  * Usage Example:
- *   java -jar BlazeDB.jar queries/query1.sql results/output1.csv
+ *   java -jar BlazeDB.jar queries/query1.sql results/output1.csv /path/to/databaseDir
  */
 public class BlazeDB {
 
@@ -66,19 +67,20 @@ public class BlazeDB {
 	/**
 	 * Executes the SQL query plan defined in the specified input file and writes the results to the output file.
 	 * This method performs the following steps:
-	 *   Parses the SQL SELECT query from the input file.
-	 *   Initializes the operator tree and schema mapping based on the parsed query.
-	 *   Processes any aggregations, handling SUM expressions and grouping as necessary.
-	 *   Applies projections to select the required columns.
-	 *   Handles duplicate elimination if the query includes DISTINCT or GROUP BY clauses.
-	 *   Applies sorting based on ORDER BY clauses.
-	 *   Executes the operator tree to generate the query results.
-	 *   Compares the generated output with expected results to verify correctness.
+	 *   1. Parse the SQL SELECT query from the input file.
+	 *   2. Initialize the operator tree and generate a full schema mapping using the provided database directory.
+	 *   3. Collect the required columns from the SELECT, WHERE, GROUP BY, and ORDER BY clauses, using the first table as the default.
+	 *   4. Process aggregations (if any), including handling SUM expressions and grouping operations.
+	 *      - For aggregation queries, build a pruned mapping and wrap the operator tree with the SumOperator.
+	 *      - Rebuild the final schema mapping to match the SELECT items when aggregations are present.
+	 *   5. For non-aggregation queries, apply early projection processing and handle duplicate elimination if DISTINCT or GROUP BY clauses are specified.
+	 *   6. Handle ORDER BY processing to sort the final results.
+	 *   7. Execute the operator tree and compare the generated output with the expected results.
 	 *
-	 * @param inputFile  The path to the input file containing the SQL SELECT query.
-	 * @param outputFile The path to the output file where the query results will be written.
+	 * @param inputFile   The path to the input file containing the SQL SELECT query.
+	 * @param outputFile  The path to the output file where the query results will be written.
+	 * @param databaseDir The directory containing the database data files.
 	 */
-
 	public static void executeQueryPlan(String inputFile, String outputFile, String databaseDir) {
 		try (FileReader fileReader = new FileReader(inputFile)) {
 			// 1. Initialize operator tree and full schema mapping.
@@ -152,7 +154,17 @@ public class BlazeDB {
 	}
 
 	/**
-	 * Processes the aggregation branch by building a pruned mapping from the required columns and literal SUM aggregates.
+	 * Processes the aggregation branch by building a pruned mapping that includes only the required columns
+	 * and any literal SUM aggregate expressions. For each required column found in the full schema mapping,
+	 * an entry is added to the pruned mapping. Additionally, for each SUM aggregate expression, if its
+	 * literal representation (from the provided mapping) is not already present in the pruned mapping, it is added.
+	 *
+	 * @param plainSelect      The parsed plain select query.
+	 * @param requiredColumns  The set of columns required according to the query.
+	 * @param schemaMapping    The full schema mapping with fully qualified column names and their indexes.
+	 * @param sumExpressions   The list of SUM expression objects present in the query.
+	 * @param literalSumMapping A mapping from SUM expressions to their literal string representations.
+	 * @return A pruned mapping containing only the necessary columns and literal SUM aggregates.
 	 */
 	private static Map<String, Integer> processAggregationBranch(PlainSelect plainSelect, Set<String> requiredColumns,
 																 Map<String, Integer> schemaMapping,
@@ -182,6 +194,13 @@ public class BlazeDB {
 
 	/**
 	 * Rebuilds the final schema mapping so that it contains exactly the SELECT items (re-indexed from 0).
+	 * This method processes each select item, using its alias if defined or the underlying column/expression
+	 * name as a fallback. It then searches for a matching entry in the original schema mapping using a case-insensitive
+	 * comparison before adding it to the final mapping.
+	 *
+	 * @param plainSelect   The parsed plain select query.
+	 * @param schemaMapping The original full schema mapping with column names and their indexes.
+	 * @return A new schema mapping containing only the SELECT items, re-indexed from 0.
 	 */
 	private static Map<String, Integer> rebuildSchemaMappingForSelect(PlainSelect plainSelect, Map<String, Integer> schemaMapping) {
 		Map<String, Integer> finalMapping = new LinkedHashMap<>();
@@ -205,6 +224,16 @@ public class BlazeDB {
 		return finalMapping;
 	}
 
+	/**
+	 * Processes the projection for non-aggregation queries by selecting the required columns
+	 * from the operator tree and updating the schema mapping accordingly.
+	 *
+	 * @param plainSelect      The parsed plain select query.
+	 * @param rootOperator     The current root operator in the operator tree.
+	 * @param schemaMapping    The current schema mapping with column names and their indexes.
+	 * @param requiredColumns  The set of columns required according to the query.
+	 * @return A {@link ProjectionResult} containing the updated root operator and schema mapping.
+	 */
 	private static ProjectionResult processNonAggregationProjection(
 			PlainSelect plainSelect,
 			Operator rootOperator,
@@ -263,11 +292,14 @@ public class BlazeDB {
 
 
 	/**
-	 * Handles the wrapping of the operator tree with DuplicateEliminationOperator if needed.
+	 * Handles the wrapping of the operator tree with a DuplicateEliminationOperator when required.
+	 * This method checks whether the SQL query includes DISTINCT or GROUP BY clauses and applies
+	 * duplicate elimination accordingly to ensure that the result set adheres to the query's specifications.
 	 *
-	 * @param plainSelect   The parsed SQL select statement.
-	 * @param rootOperator  The current root operator in the operator tree.
-	 * @return The updated root operator after applying duplicate elimination if required.
+	 * @param plainSelect   The parsed SQL SELECT statement.
+	 * @param rootOperator  The current root operator in the operator tree prior to duplicate elimination.
+	 * @return The updated root operator after applying duplicate elimination if required. If duplicate
+	 *         elimination is not needed, returns the original root operator unchanged.
 	 */
 	private static Operator handleDuplicateElimination(PlainSelect plainSelect, Operator rootOperator) {
 		boolean hasDistinct = (plainSelect.getDistinct() != null);
@@ -597,8 +629,6 @@ public class BlazeDB {
 		return mapping;
 	}
 
-
-
 	/**
 	 * Combines two schema mappings.
 	 * The indices from the right mapping are offset by the size of the left mapping.
@@ -621,9 +651,6 @@ public class BlazeDB {
 		}
 		return combinedMapping;
 	}
-
-
-
 
 	/**
 	 * Processes the projection part of the query, handling both aggregated and non-aggregated projections.
@@ -810,12 +837,22 @@ public class BlazeDB {
 		return new OperatorInitializationResult(rootOperator, schemaMapping);
 	}
 
-
-
 	/**
-	 * Build a join tree given a list of table names and a WHERE clause.
-	 * This method creates a scan (with selection pushdown) for the first table and
-	 * then iteratively joins each subsequent table.
+	 * Constructs a join tree operator based on the provided list of table names and the SQL WHERE clause.
+	 *
+	 * The resulting operator tree represents a left-deep join tree where the first table is progressively
+	 * joined with each subsequent table in the provided list using the specified join conditions.
+	 *
+	 * @param tableNames   A {@code List<String>} containing the names of the tables to be joined. The order of
+	 *                     tables in the list determines the sequence of JOIN operations.
+	 * @param whereClause  An {@link Expression} representing the SQL WHERE clause, which may contain both
+	 *                     selection predicates (filters) and join conditions.
+	 *
+	 * @return An {@link Operator} representing the root of the join tree operator. This operator encapsulates
+	 *         the entire sequence of JOIN operations and any applied selection predicates.
+	 *
+	 * @throws IllegalArgumentException if the {@code tableNames} list is empty, indicating that there are
+	 *                                  no tables specified in the FROM clause of the SQL query.
 	 */
 	public static Operator buildJoinTree(List<String> tableNames, Expression whereClause) {
 		if (tableNames.isEmpty()) {
@@ -854,6 +891,20 @@ public class BlazeDB {
 		return currentOperator;
 	}
 
+	/**
+	 * Determines whether a given SQL expression is local to a specified table.
+	 *
+	 * @param expr       The {@link Expression} representing the SQL condition to be evaluated.
+	 *                   This could be a simple column check, a complex logical expression, or any
+	 *                   other form of SQL predicate.
+	 * @param tableName  The {@code String} name of the table to which the condition's locality is
+	 *                   being assessed. The comparison is case-insensitive.
+	 *
+	 * @return {@code true} if all column references within the expression are associated with the
+	 *         specified {@code tableName}; {@code false} otherwise.
+	 *
+	 * @throws IllegalArgumentException if the {@code tableName} is {@code null} or empty.
+	 */
 	private static boolean isConditionLocal(Expression expr, final String tableName) {
 		final boolean[] isLocal = { true };
 
@@ -923,10 +974,6 @@ public class BlazeDB {
 	/**
 	 * Extracts the join condition from the specified WHERE clause by identifying binary expressions
 	 * that involve tables from both the current and right schema mappings.
-	 *
-	 * <p>This method recursively traverses the WHERE clause expression. For conjunctions (AND expressions),
-	 * it attempts to extract join conditions from both sides of the expression. If a binary expression references
-	 * at least one table from each schema mapping, it is considered a join condition and returned.
 	 *
 	 * @param whereClause           The WHERE clause expression to process.
 	 * @param currentSchemaMapping  A map of table names to their corresponding indices in the current schema.
@@ -1002,8 +1049,18 @@ public class BlazeDB {
 
 
 	/**
-	 * Extracts the table names from a schema mapping.
-	 * The keys of the mapping are assumed to be qualified as "TableName.ColumnName".
+	 * Retrieves the set of table names referenced within a given SQL expression.
+	 *
+	 * @param expr The {@link Expression} from which to extract referenced table names.
+	 *             This expression can represent various SQL predicates, including selections,
+	 *             joins, and complex logical conditions.
+	 *
+	 * @return A {@link Set} of {@link String} objects, each representing a unique table name
+	 *         that is referenced within the provided expression. If no tables are referenced,
+	 *         an empty set is returned.
+	 *
+	 * @throws IllegalArgumentException if the provided {@code expr} is {@code null}, indicating
+	 *                                  that there is no expression to analyze.
 	 */
 	private static Set<String> getTablesFromMapping(Map<String, Integer> mapping) {
 		Set<String> tables = new HashSet<>();
@@ -1019,7 +1076,21 @@ public class BlazeDB {
 
 
 	/**
-	 * Placeholder for a method to merge two schema mappings.
+	 * Merges two schema mappings into a single combined mapping.
+	 *
+	 * @param leftMapping  A {@link Map} where each key is a column name from the left table, and
+	 *                     each value is the corresponding column index. This map represents the schema
+	 *                     mapping of the first table involved in the join operation.
+	 * @param rightMapping A {@link Map} where each key is a column name from the right table, and
+	 *                     each value is the corresponding column index. This map represents the schema
+	 *                     mapping of the second table to be joined with the first table.
+	 *
+	 * @return A new {@link Map} representing the merged schema mapping. This map contains all entries
+	 *         from {@code leftMapping} and {@code rightMapping}, with the indices from
+	 *         {@code rightMapping} appropriately offset to ensure unique indexing across the combined
+	 *         schema.
+	 *
+	 * @throws IllegalArgumentException if either {@code leftMapping} or {@code rightMapping} is {@code null}.
 	 */
 	private static Map<String, Integer> mergeSchemaMappings(Map<String, Integer> leftMapping,
 															Map<String, Integer> rightMapping) {
@@ -1056,11 +1127,6 @@ public class BlazeDB {
 
 	/**
 	 * Creates a schema mapping for the specified table by reading its column information from the schema file.
-	 *
-	 * <p>This method reads the schema definition from "samples/db/schema.txt" and constructs a map where
-	 * each key is a fully qualified column name (e.g., "tableName.columnName") and the value is the
-	 * corresponding column index. It iterates through the schema file to find the line that starts with
-	 * the given table name and processes its columns to build the mapping.
 	 *
 	 * @param tableName The name of the table for which the schema mapping is to be created.
 	 * @return A map containing column names as keys and their respective indices as values.

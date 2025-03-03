@@ -2,6 +2,17 @@ package ed.inf.adbs.blazedb;
 
 import java.io.File;
 
+/**
+ * The {@code Catalog} class serves as a centralized repository for managing table metadata within the BlazeDB system.
+ * Implemented as a Singleton, it ensures that only one instance of the catalog exists throughout the application's lifecycle.
+ * The catalog is responsible for maintaining mappings between table names and their corresponding file paths,
+ * facilitating efficient data retrieval and management.
+ *
+ * Key Responsibilities:
+ *  - Singleton Enforcement: Guarantees a single instance of the catalog, providing a global point of access.
+ *  - File Path Management: Maintains and resolves file paths for tables, allowing dynamic lookup and overriding.
+ *  - Metadata Storage: Stores essential metadata about tables, such as their storage locations.
+ */
 public class Catalog {
     // Singleton instance
     private static Catalog instance = null;
@@ -9,14 +20,21 @@ public class Catalog {
     // Base directory where all table files are stored.
     private final String baseDir;
 
+    /**
+     * Private constructor to enforce Singleton pattern.
+     * Initializes the base directory for table storage.
+     */
     private Catalog() {
         // The base directory
         this.baseDir = "samples/db/data/";
     }
 
     /**
-     * Retrieves the single instance of Catalog.
-     * @return The Catalog instance.
+     * Retrieves the single instance of {@code Catalog}.
+     * If the instance does not exist, it initializes a new one.
+     * This method ensures that only one instance of the catalog is created and provides global access to it.
+     *
+     * @return The singleton {@code Catalog} instance.
      */
     public static Catalog getInstance() {
         if (instance == null) {
@@ -27,11 +45,14 @@ public class Catalog {
 
     /**
      * Returns the file path associated with the given table name.
-     * It dynamically constructs the path with the assumption that each table
-     * is stored as a CSV file in the base directory.
+     * It dynamically constructs the path with the assumption that each table is stored as a CSV file in the base directory.
+     * If the specified table file exists in the base directory, the method returns its absolute path.
+     * Otherwise, it logs an error message and returns {@code null}.
      *
-     * @param tableName name of the table whose file path is to be retrieved.
-     * @return file path as a String if the file exists, otherwise null.
+     * @param tableName The name of the table whose file path is to be retrieved.
+     * @return The file path as a {@code String} if the file exists; {@code null} otherwise.
+     *
+     * @throws IllegalArgumentException if {@code tableName} is {@code null} or empty.
      */
     public String getFilePathForTable(String tableName) {
         String filePath = baseDir + tableName + ".csv";
@@ -42,21 +63,5 @@ public class Catalog {
             System.err.println("Table file not found for table: " + tableName);
             return null;
         }
-    }
-
-    /**
-     * Adds or updates a table entry in the catalog.
-     * With dynamic file path resolution, this method can be used to override
-     * the default file location if needed.
-     *
-     * @param tableName The name of the table.
-     * @param filePath The file path where the table data is stored.
-     */
-    public void addTable(String tableName, String filePath) {
-        // This method can be implemented to override the default file path resolution
-        // For now, it could simply log a warning that dynamic file lookup is being used.
-        System.out.println("Warning: Overriding default file lookup. New file path for table "
-                + tableName + " is " + filePath);
-        // If you wish to support this behavior, you can add an internal map for overrides.
     }
 }

@@ -9,7 +9,23 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.*;
 
-
+/**
+ * The {@code ScanOperator} class is responsible for scanning a specified table within the BlazeDB framework.
+ * It reads data from the underlying storage (typically a file), converts each line into a {@link Tuple},
+ * and provides mechanisms to iterate over these tuples. Additionally, it implements the {@link SchemaProvider}
+ * interface to supply schema information about the scanned data.
+ *
+ * Key Responsibilities:
+ *  - Data Scanning: Reads data from the specified table's file and converts each line into a {@link Tuple}.
+ *  - Schema Management: Manages the schema mapping to associate column names with their respective indices.
+ *  - State Management: Supports resetting the scan to start from the beginning of the data source.
+ *  - Projection Support: Allows retrieval of projected tuples based on specified columns.
+ *
+ * Implementation Details:
+ *  - Table Identification: Utilizes the table name to locate and access the corresponding data file.
+ *  - Header Handling: Supports optional header rows to map column names to their indices.
+ *  - Schema Pruning: Allows pruning of the schema to include only relevant columns, optimizing data retrieval.
+ */
 public class ScanOperator extends Operator implements SchemaProvider {
     private String tableName;
     private BufferedReader reader;
@@ -23,9 +39,13 @@ public class ScanOperator extends Operator implements SchemaProvider {
 
 
     /**
-     * Constructs a ScanOperator to scan the table with the given name.
+     * Constructs a {@code ScanOperator} to scan the specified table.
+     * This constructor initializes the scan operator by setting the table name and determining
+     * whether the table file contains a header row. It prepares the operator for data scanning by
+     * initializing necessary resources.
      *
      * @param tableName The name of the table to scan.
+     * @param hasHeader {@code true} if the table file includes a header row; {@code false} otherwise.
      */
     public ScanOperator(String tableName, boolean hasHeader) {
         this.tableName = tableName;
@@ -36,7 +56,12 @@ public class ScanOperator extends Operator implements SchemaProvider {
     }
 
     /**
-     * Opens a file reader for the table file.
+     * Opens a file reader for the table's data file.
+     *
+     * This method initializes the {@link BufferedReader} to read data from the specified file path.
+     * It handles the opening of the file and prepares the reader for tuple retrieval.
+     *
+     * @throws RuntimeException if an I/O error occurs while opening the file.
      */
     private void openFileScan() {
         try {
@@ -78,20 +103,27 @@ public class ScanOperator extends Operator implements SchemaProvider {
     }
 
     /**
-     * Creates and returns a BufferedReader for the given file path.
+     * Creates and returns a {@link BufferedReader} for the given file path.
+     * This helper method encapsulates the logic for initializing a {@link BufferedReader} with the
+     * specified file path, handling any necessary I/O exceptions.
      *
      * @param path The file path to open.
-     * @return a BufferedReader for the file.
-     * @throws IOException if an I/O error occurs.
+     * @return A {@link BufferedReader} instance for reading the file.
+     * @throws IOException if an I/O error occurs while opening the file.
      */
     private BufferedReader createBufferedReader(String path) throws IOException {
         return new BufferedReader(new FileReader(new File(path)));
     }
 
     /**
-    * Reads the next line from the file and returns it as a Tuple.
-    * @return the next Tuple or null if end of file is reached.
-    */
+     * Retrieves the next {@link Tuple} from the table's data stream.
+     * This method reads the next line from the table's file, converts it into a {@link Tuple},
+     * and returns it. If the end of the file is reached, {@code null} is returned.
+     *
+     * @return The next {@link Tuple} containing the row data, or {@code null} if the end of the file is reached.
+     *
+     * @throws RuntimeException if an error occurs during tuple retrieval.
+     */
     @Override
     public Tuple getNextTuple() {
         try {
@@ -113,7 +145,12 @@ public class ScanOperator extends Operator implements SchemaProvider {
 
 
     /**
-     * Resets the operator to the beginning of the file by closing and reopening the file reader.
+     * Resets the {@code ScanOperator} to the beginning of the table's data file.
+     * This method closes the current {@link BufferedReader} and reopens it, effectively resetting
+     * the scan to start from the first tuple again. It ensures that subsequent calls to {@link #getNextTuple()}
+     * will begin retrieval from the start of the data source.
+     *
+     * @throws RuntimeException if an error occurs during the reset process.
      */
     @Override
     public void reset() {
@@ -127,80 +164,17 @@ public class ScanOperator extends Operator implements SchemaProvider {
         openFileScan();
     }
 
-    public void setPrunedSchema(Set<String> schema) {
-        this.prunedSchema = schema;
-    }
-
+    /**
+     * Retrieves the list of output columns based on the current schema mapping and pruning.
+     * This method returns a {@link List} of column names that the scan operator will output.
+     * If schema pruning is applied, only the pruned columns are included.
+     *
+     * @return A {@link List} of column names to be included in the output tuples.
+     */
     @Override
     public List<String> getOutputColumns() {
         // Convert the set to a list. Adjust if your ordering is important.
         return new ArrayList<>(prunedSchema);
-    }
-
-    /**
-     * Reads the next tuple and returns a tuple containing only the values of the specified column.
-     * This is the single-column version.
-     *
-     * @param columnName The name of the column to project.
-     * @return a Tuple with the projected field, or null if no more tuples.
-     */
-    public Tuple getNextProjectedTuple(String columnName) {
-        Tuple tuple = getNextTuple();
-        if (tuple == null) {
-            return null;
-        }
-        List<String> fullFields = tuple.getFields();
-        List<String> projectedFields = new ArrayList<>();
-        Integer index = getColumnIndex(columnName);
-        if (index != null && index < fullFields.size()) {
-            projectedFields.add(fullFields.get(index));
-        } else {
-            // Optionally: throw an exception or log an error if column not found.
-            projectedFields.add("");
-        }
-        return new Tuple(projectedFields);
-    }
-
-
-    /**
-     * Reads the next tuple and returns a tuple containing only the values of the specified columns.
-     *
-     * @param columnNames An array of column names to project.
-     * @return a new Tuple containing only the projected values in the order of columnNames,
-     *         or null if no more tuples.
-     */
-    public Tuple getNextProjectedTuple(String[] columnNames) {
-        Tuple tuple = getNextTuple();
-        if (tuple == null) {
-            return null;
-        }
-        List<String> fullFields = tuple.getFields();
-        List<String> projectedFields = new ArrayList<>();
-        for (String col : columnNames) {
-            Integer index = getColumnIndex(col);
-            if (index != null && index < fullFields.size()) {
-                projectedFields.add(fullFields.get(index));
-            } else {
-                projectedFields.add("");
-            }
-        }
-        return new Tuple(projectedFields);
-    }
-
-
-    /**
-     * Returns the index corresponding to the given column name.
-     * This sample mapping assumes "A" is index 0, "B" is index 1, "C" is index 2, etc.
-     *
-     * @param columnName the name of the column.
-     * @return the index of the column.
-     */
-    private Integer getColumnIndex(String columnName) {
-        Integer index = schemaMapping.get(columnName);
-        if (index == null) {
-            throw new IllegalArgumentException("Column " + columnName + " not found in dynamic schema mapping for table " + tableName);
-        }
-        return index;
     }
 }
 

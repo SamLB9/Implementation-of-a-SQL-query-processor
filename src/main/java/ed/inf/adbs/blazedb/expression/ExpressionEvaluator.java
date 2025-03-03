@@ -16,6 +16,26 @@ import net.sf.jsqlparser.statement.select.Select;
 
 import java.util.Map;
 
+
+/**
+ * Evaluates SQL expressions against a given tuple based on a predefined schema mapping.
+ *
+ * <p>The {@code ExpressionEvaluator} class implements the {@link ExpressionVisitor} interface
+ * from JSQLParser to traverse and evaluate SQL expressions in the context of a specific
+ * tuple (record) and its associated schema mapping. This evaluator supports various types of
+ * expressions, including arithmetic operations, logical conditions, and relational comparisons,
+ * enabling complex query processing and optimization tasks.
+ *
+ * Key Features:
+ *  - Tuple Evaluation: Evaluates expressions against the fields of a provided tuple,
+ *         allowing for dynamic and context-sensitive computation.
+ *  - Schema Mapping: Utilizes a schema mapping that associates fully qualified
+ *         column names (e.g., "Student.sid") with their corresponding indices in the tuple.
+ *         This facilitates efficient access to tuple fields during expression evaluation.
+ *  - Expression Support: Capable of handling a wide range of SQL expressions,
+ *         including literals, columns, arithmetic operations, conditional expressions, and more.
+ */
+
 public class ExpressionEvaluator implements ExpressionVisitor {
 
     private Tuple tuple;
@@ -24,12 +44,36 @@ public class ExpressionEvaluator implements ExpressionVisitor {
     // Current evaluation result.
     private Object currentValue;
 
+    /**
+     * Constructs an {@code ExpressionEvaluator} with the specified tuple and schema mapping.
+     *
+     * @param tuple          The {@link Tuple} containing the data against which expressions
+     *                       will be evaluated.
+     * @param schemaMapping  A {@link Map} that maps fully qualified column names (e.g., "Table.column")
+     *                       to their corresponding indices in the tuple. This mapping is used to
+     *                       retrieve the appropriate field values during expression evaluation.
+     *
+     * @throws IllegalArgumentException if either {@code tuple} or {@code schemaMapping} is {@code null}.
+     */
     public ExpressionEvaluator(Tuple tuple, Map<String, Integer> schemaMapping) {
         this.tuple = tuple;
         this.schemaMapping = schemaMapping;
     }
 
-
+    /**
+     * Evaluates the given SQL expression against the current tuple and schema mapping.
+     *
+     * This method traverses the expression tree using the visitor pattern and computes the result
+     * based on the tuple's field values. The evaluation results in a boolean value indicating whether
+     * the expression holds true for the provided tuple.
+     *
+     * @param expr  The {@link Expression} to evaluate. This can be any valid SQL expression, including
+     *              logical conditions, arithmetic computations, or relational comparisons.
+     *
+     * @return {@code true} if the expression evaluates to true for the current tuple; {@code false} otherwise.
+     *
+     * @throws IllegalArgumentException if the provided {@code expr} is {@code null}.
+     */
     public boolean evaluate(Expression expr) {
         expr.accept(this);
         if (currentValue instanceof Boolean) {
@@ -40,7 +84,18 @@ public class ExpressionEvaluator implements ExpressionVisitor {
     }
 
 
-    // Helper method for evaluating subexpressions.
+    /**
+     * Evaluates a sub-expression and returns its computed value.
+     *
+     * This helper method is used internally to evaluate nested expressions and retrieve their
+     * corresponding values based on the tuple's data.
+     *
+     * @param expr  The {@link Expression} representing the sub-expression to evaluate.
+     *
+     * @return An {@link Object} representing the result of the sub-expression evaluation.
+     *
+     * @throws RuntimeException if the sub-expression cannot be evaluated or results in an unexpected type.
+     */
     private Object evaluateSubExpression(Expression expr) {
         ExpressionEvaluator subEvaluator = new ExpressionEvaluator(tuple, schemaMapping);
         expr.accept(subEvaluator);

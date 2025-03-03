@@ -10,6 +10,23 @@ import ed.inf.adbs.blazedb.Tuple;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.OrderByElement;
 
+/**
+ * The {@code SortOperator} class implements the sorting operation within the BlazeDB framework.
+ * It retrieves tuples from its child operator, sorts them based on specified ORDER BY elements,
+ * and provides the sorted tuples for further processing. This operator is essential for executing
+ * SQL queries that require ordered results.
+ *
+ * Key Responsibilities:
+ *  - Tuple Retrieval: Fetches all tuples from the child operator and stores them for sorting.
+ *  - Sorting Mechanism: Sorts the collected tuples based on one or more ORDER BY criteria.
+ *  - Schema Mapping: Maintains a mapping between column names and their respective indices to facilitate accurate sorting.
+ *  - State Management: Manages internal state to allow resetting and re-iteration over sorted tuples.
+ *
+ * Implementation Details:
+ *  - The class retrieves all tuples from the child operator and stores them in a buffer for sorting.
+ *  - A custom {@link TupleComparator} is used to define the sorting logic based on the provided ORDER BY elements.
+ *  - After sorting, tuples are returned one by one through the {@link #getNextTuple()} method.
+ */
 public class SortOperator extends Operator {
 
     private final Operator child;
@@ -22,12 +39,15 @@ public class SortOperator extends Operator {
     private int currentIndex;
 
     /**
-     * Constructor for the SortOperator.
+     * Constructs a {@code SortOperator} with the specified child operator, ORDER BY elements, and schema mapping.
+     * This constructor initializes the sort operator by setting its child operator, the ORDER BY rules
+     * for sorting, and the schema mapping required to resolve column references within the tuples.
      *
-     * @param child           the child operator to fetch tuples from.
-     * @param orderByElements a list of ORDER BY elements specifying sort order.
-     * @param schemaMapping   a mapping from column names (as used in the ORDER BY clause)
-     *                        to the corresponding position in the tuple.
+     * @param child           The child {@link Operator} providing input tuples (e.g., an instance of {@link ScanOperator}).
+     * @param orderByElements A {@link List} of {@link OrderByElement} specifying the sort order based on column names and directions.
+     * @param schemaMapping   A {@link Map} that associates column names (as used in the ORDER BY clause) with their respective indices in the tuples.
+     *
+     * @throws IllegalArgumentException if {@code child}, {@code orderByElements}, or {@code schemaMapping} is {@code null}.
      */
     public SortOperator(Operator child, List<OrderByElement> orderByElements, Map<String, Integer> schemaMapping) {
         this.child = child;
@@ -37,6 +57,15 @@ public class SortOperator extends Operator {
         this.currentIndex = 0;
     }
 
+    /**
+     * Retrieves the next sorted tuple from the buffer.
+     * If the tuples have not been sorted yet, this method fetches all tuples from the child operator,
+     * sorts them based on the specified ORDER BY elements, and then returns the tuples one by one in sorted order.
+     *
+     * @return The next {@link Tuple} in sorted order, or {@code null} if no more tuples are available.
+     *
+     * @throws RuntimeException if an error occurs during tuple retrieval or sorting.
+     */
     @Override
     public Tuple getNextTuple() {
         // Buffer all tuples from the child operator and sort them if not already done.
@@ -58,13 +87,22 @@ public class SortOperator extends Operator {
         return null;
     }
 
+    /**
+     * Resets the {@code SortOperator} to its initial state, allowing for re-iteration over sorted tuples.
+     * This method clears the sorted tuples buffer, resets the current index pointer, and resets the child operator,
+     * enabling the sort operation to be performed again from the beginning.
+     *
+     * @throws RuntimeException if an error occurs during the reset process.
+     */
     @Override
     public void reset() {
 
     }
 
     /**
-     * A custom comparator that compares two tuples based on the ORDER BY elements.
+     * A custom comparator that defines the sorting logic for {@link Tuple} objects based on the specified ORDER BY elements.
+     * This comparator iterates through the ORDER BY elements and compares tuples based on the corresponding
+     * column values and sort directions. It ensures that tuples are ordered according to all specified criteria.
      */
     private static class TupleComparator implements Comparator<Tuple> {
 

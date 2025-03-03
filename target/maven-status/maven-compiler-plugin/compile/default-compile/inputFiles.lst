@@ -9,7 +9,6 @@
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/SumOperator.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/result/OperatorInitializationResult.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/SelectOperator.java
-/Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/LiteralAppendOperator.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/BlazeDB.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/operator/ScanOperator.java
 /Users/samlaborde-balen/ADS-CW1/src/main/java/ed/inf/adbs/blazedb/Tuple.java

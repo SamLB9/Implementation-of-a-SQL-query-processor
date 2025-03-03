@@ -83,3 +83,6 @@ The tuple-nested-loop join algorithm processes one tuple from the left (outer) r
 - **Immediate Filtering:** Alongside iterating over each combination of left and right tuples, the immediate evaluation of the join condition prevents non-matching pairs from being stored or further processed. This keeps the size of the intermediate result set much smaller.
 - **Reduced Redundancy:** By avoiding the accumulation of tuples that do not satisfy join conditions, the approach reduces redundant calculations. This, in turn, lessens the load on subsequent processing steps such as projection, aggregation, or sorting.
 - **Efficiency in Memory Usage:** Since the unwanted tuples are discarded as soon as they are evaluated, the memory footprint remains low. This is particularly beneficial when processing large relations, as it prevents the potential ballooning of partially-joined data.
+
+## Known Issues
+- **Performance**: For large data sets, the tuple-nested-loop join may not be the most efficient join algorithm.

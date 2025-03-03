@@ -4,13 +4,19 @@ This project implements a basic query processor with a focus on efficient join e
 
 ## Join Condition Extraction
 
-The application processes the WHERE clause to distinguish between:
+In this project, I employ an advanced strategy for processing SQL queries by extracting join conditions from the WHERE clause. This technique is key to optimizing query performance.
 
-- **Selection Conditions**: Expressions that reference only one table (e.g., `R.A < R.B` or `S.C = 1`). These are applied as early as possible (typically at the **Scan/Select** operator level) so that only relevant tuples are processed downstream.
-- **Join Conditions**: Expressions that reference columns from different tables (e.g., `R.D = S.G`). These are extracted and evaluated during the join operation, thereby avoiding costly cross product computations.
+**How It Works:**
+- **Separation of Conditions:**
+The WHERE clause often contains a mix of predicates. Some of these conditions are used to filter rows based on values from a single table (selection conditions), while others compare columns between two tables (join conditions). Our system analyzes the WHERE clause to differentiate between these two types.
+- **Extraction and Application of Join Conditions:**
+Conditions that involve columns from two different tables are extracted as join conditions. Instead of evaluating these after all rows have been combined, they are attached directly to the join operators. During the join process (typically a tuple-nested-loop join in our implementation), the system evaluates these conditions on-the-fly as tuples are combined. This prevents the generation of large intermediate result sets that would later require filtering, thus avoiding unnecessary Cartesian products.
+- **Left-Deep Join Tree Structure:**
+To further enhance performance, the join operations are organized in a left-deep tree structure. This means that joins are performed in the order specified by the FROM clause, with each join operator processing only those tuple combinations that satisfy its associated join condition.
 
-### Implementation Detail
-The strategy for extracting join conditions from the WHERE clause is explained in detail within the code comments of **JoinOperator.java**. Please see the comments around the class declaration and the section that discusses tuple-nested-loop join processing. Specifically, the comments at the beginning of the file describe how conditions are differentiated and handled. This should help the grader quickly locate the explanation of the logic.
+**Benefits:**
+- **Reduced Overhead:** Extracting join conditions minimizes the computational cost of handling full Cartesian products, as only promising tuple pairs are combined and evaluated.
+- **Optimized Query Execution:** The clear separation between single-table and multi-table predicates enables the creation of an efficient operator tree, which is crucial for managing resource utilization and achieving fast query response times.
 
 ## Query Optimization Rules
 

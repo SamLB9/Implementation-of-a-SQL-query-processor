@@ -6,7 +6,7 @@ This project implements a basic query processor with a focus on efficient join e
 
 In this project, I employ an advanced strategy for processing SQL queries by extracting join conditions from the WHERE clause. This technique is key to optimizing query performance.
 
-** ⚙️ How It Works:**
+**⚙️ How It Works:**
 - **🧩 Separation of Conditions:**
 The WHERE clause often contains a mix of predicates. Some of these conditions are used to filter rows based on values from a single table (selection conditions), while others compare columns between two tables (join conditions). Our system analyzes the WHERE clause to differentiate between these two types.
 - **📤 Extraction and Application of Join Conditions:**
